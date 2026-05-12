@@ -1,0 +1,1 @@
+print('Seed admin placeholder')
