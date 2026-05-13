@@ -69,3 +69,16 @@ def test_chat_rag_context_in_prompt(monkeypatch):
     assert done['citations'], 'citations should be returned only for retrieved chunks'
     sys_msgs = [m['content'] for m in captured['messages'] if m['role'] == 'system']
     assert any('Project file context:' in m and 'Paris is the capital of France' in m for m in sys_msgs)
+
+
+def test_upload_rejects_malicious_project_id_and_no_escape_write():
+    evil_dir = (repo.upload_root.resolve().parent / 'evil').resolve()
+    if evil_dir.exists():
+        for child in evil_dir.glob('**/*'):
+            if child.is_file():
+                child.unlink()
+    files = {'file': ('note.txt', b'abc', 'text/plain')}
+    response = client.post('/api/files/upload?project_id=../../evil', files=files)
+    assert response.status_code == 400
+    assert 'Invalid project_id path' in response.text
+    assert not evil_dir.exists()

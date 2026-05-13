@@ -33,7 +33,10 @@ async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
     raw = await file.read()
     text = extract_text(file.filename, raw)
     chunks = chunk_text(text)
-    return repo.save_file(project_id=project_id, filename=file.filename, content=raw, extracted_text=text, chunks=chunks)
+    try:
+        return repo.save_file(project_id=project_id, filename=file.filename, content=raw, extracted_text=text, chunks=chunks)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get('/search')

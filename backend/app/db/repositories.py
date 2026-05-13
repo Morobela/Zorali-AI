@@ -68,7 +68,13 @@ class Repository:
 
     def save_file(self, project_id: str, filename: str, content: bytes, extracted_text: str, chunks: list[dict[str, Any]]):
         file_id = str(uuid4())
-        project_dir = (self.upload_root / project_id).resolve()
+        upload_root = self.upload_root.resolve()
+        project_dir = (upload_root / project_id).resolve()
+        if upload_root != project_dir and upload_root not in project_dir.parents:
+            raise ValueError("Invalid project_id path")
+        project_exists = any(p["id"] == project_id for p in self.list_projects())
+        if not project_exists:
+            raise ValueError("Unknown project_id")
         project_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(filename).suffix.lower()
         storage_name = f"{file_id}{suffix}"
