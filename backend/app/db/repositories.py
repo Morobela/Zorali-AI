@@ -68,11 +68,15 @@ class Repository:
 
     def save_file(self, project_id: str, filename: str, content: bytes, extracted_text: str, chunks: list[dict[str, Any]]):
         file_id = str(uuid4())
-        project_dir = self.upload_root / project_id
+        project_dir = (self.upload_root / project_id).resolve()
         project_dir.mkdir(parents=True, exist_ok=True)
-        full_path = project_dir / filename
+        suffix = Path(filename).suffix.lower()
+        storage_name = f"{file_id}{suffix}"
+        full_path = (project_dir / storage_name).resolve()
+        if project_dir not in full_path.parents:
+            raise ValueError("Invalid upload path")
         full_path.write_bytes(content)
-        record = {"id": file_id, "project_id": project_id, "filename": filename, "path": str(full_path), "extracted_text": extracted_text, "chunks": chunks, "created_at": _utc_now()}
+        record = {"id": file_id, "project_id": project_id, "filename": Path(filename).name, "path": str(full_path), "extracted_text": extracted_text, "chunks": chunks, "created_at": _utc_now()}
         self.store.mutate(lambda s: s["files"].append(record))
         return record
 

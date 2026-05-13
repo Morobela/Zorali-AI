@@ -33,16 +33,18 @@ async def chat_ws(websocket: WebSocket, session_id: str):
                 await websocket.send_json({"type": "error", "content": "Empty message"})
                 continue
 
-            citations = repo.search_chunks(project_id, message, limit=3)
+            retrieved = repo.search_chunks(project_id, message, limit=3)
             repo.add_chat_message(project_id, session_id, "user", message)
             memory = repo.list_chat_messages(project_id, session_id)
-            prompt_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + [
+            rag_block = "\n\n".join([f"[{c['filename']}#{c['chunk_id']}] {c['text']}" for c in retrieved])
+            prompt_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + ([{"role": "system", "content": f"Project file context:\n{rag_block}"}] if rag_block else []) + [
                 {"role": m["role"], "content": m["content"]} for m in memory
             ]
             full = ""
             async for token in stream_llm(prompt_messages):
                 full += token
                 await websocket.send_json({"type": "token", "content": token})
+            citations = [{k: c[k] for k in ("file_id", "filename", "chunk_id")} for c in retrieved]
             repo.add_chat_message(project_id, session_id, "assistant", full, citations=citations)
             await websocket.send_json({"type": "done", "citations": citations})
     except WebSocketDisconnect:

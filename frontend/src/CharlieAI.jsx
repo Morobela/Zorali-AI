@@ -18,7 +18,7 @@ export default function CharlieAI() {
   const [deepSearch, setDeepSearch] = useState(false)
   const [mode, setMode] = useState('chat')
   const [status, setStatus] = useState(null)
-  const [projects, setProjects] = useState([{ name: 'Charlie AI', active: true }])
+  const [projects, setProjects] = useState([{ id: 'default', name: 'Charlie AI', active: true }])
   const [connectors, setConnectors] = useState({ Charlie: true, Web: true, Gemini: false, GPT: false, Images: false })
   const socketRef = useRef(null)
   const sessionId = useRef(crypto.randomUUID())
@@ -55,7 +55,8 @@ export default function CharlieAI() {
     if (!text) return
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: text }, { role: 'assistant', content: '', streaming: true }])
-    socketRef.current?.send({ mode, message: text })
+    const activeProjectId = projects.find((p) => p.active)?.id || 'default'
+    socketRef.current?.send({ mode, message: text, project_id: activeProjectId })
   }
 
   function requestStatus() {
@@ -72,8 +73,8 @@ export default function CharlieAI() {
         <button className="new-chat" onClick={() => setMessages([])}>+ New chat</button>
         <input className="search" placeholder="Search chats..." />
         <section>
-          <div className="section-title">Projects <button onClick={() => setProjects([...projects, { name: 'New Project' }])}>+</button></div>
-          {projects.map((p, i) => <div key={i} className={`project ${p.active ? 'active' : ''}`}>▣ {p.name}</div>)}
+          <div className="section-title">Projects <button onClick={() => setProjects([...projects.map((x)=>({ ...x, active:false })), { id: crypto.randomUUID(), name: 'New Project', active:true }])}>+</button></div>
+          {projects.map((p, i) => <div key={p.id || i} className={`project ${p.active ? 'active' : ''}`}>▣ {p.name}</div>)}
         </section>
         <section>
           <div className="section-title">Recent</div>
