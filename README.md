@@ -27,7 +27,7 @@ docker compose up --build
 
 ## Pull lightweight model
 ```bash
-docker exec -it ollama ollama pull llama3.2:1b
+docker compose exec ollama ollama pull llama3.2:1b
 ```
 
 ## Local development

@@ -9,6 +9,8 @@ jobs:
         with:
           python-version: '3.11'
       - name: Backend tests
+        env:
+          ZORALI_DATA_DIR: ${{ runner.temp }}/zorali-data
         run: |
           pip install -r backend/requirements.txt
           PYTHONPATH=backend pytest tests/backend -q

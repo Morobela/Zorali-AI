@@ -53,7 +53,7 @@ class JsonStore:
 
 class Repository:
     def __init__(self, base_dir: str | None = None) -> None:
-        self.base_dir = Path(base_dir or os.getenv("ZORALI_DATA_DIR", "/data"))
+        self.base_dir = self._resolve_base_dir(base_dir)
         self.store = JsonStore(self.base_dir / "store.json")
         self.upload_root = self.base_dir / "uploads"
         self.artifacts_root = self.base_dir / "artifacts"
@@ -61,6 +61,28 @@ class Repository:
         self.upload_root.mkdir(parents=True, exist_ok=True)
         self.artifacts_root.mkdir(parents=True, exist_ok=True)
         self.memory_root.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _resolve_base_dir(base_dir: str | None) -> Path:
+        if base_dir:
+            return Path(base_dir)
+
+        env_dir = os.getenv("ZORALI_DATA_DIR")
+        if env_dir:
+            return Path(env_dir)
+
+        docker_data_dir = Path("/data")
+        try:
+            docker_data_dir.mkdir(parents=True, exist_ok=True)
+            probe = docker_data_dir / ".zorali-write-test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return docker_data_dir
+        except OSError:
+            pass
+
+        repo_data_dir = Path(__file__).resolve().parents[3] / "data"
+        return repo_data_dir
 
     def create_project(self, name: str, description: str = "") -> dict[str, Any]:
         project = {"id": str(uuid4()), "name": name, "description": description, "created_at": _utc_now()}
