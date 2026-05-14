@@ -22,5 +22,7 @@ jobs:
           cd frontend
           npm ci
           npm run build
+      - name: Create env file for compose
+        run: cp .env.example .env
       - name: Docker compose config check
         run: docker compose config
