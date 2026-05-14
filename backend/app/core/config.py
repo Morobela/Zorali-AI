@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_name: str = "Charlie AI"
+    app_name: str = "Zorali AI"
     app_env: str = "local"
     secret_key: str = "change-me-in-production"
     redis_url: str = "redis://redis:6379/0"
@@ -11,9 +11,9 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     project_root: str = "/app"
 
-    postgres_user: str = "charlie"
-    postgres_password: str = "charlie"
-    postgres_db: str = "charlie_ai"
+    postgres_user: str = "zorali"
+    postgres_password: str = "zorali"
+    postgres_db: str = "zorali_ai"
     postgres_host: str = "postgres"
     postgres_port: int = 5432
 

@@ -7,7 +7,7 @@ from app.db.repositories import repo
 router = APIRouter()
 
 SYSTEM_PROMPT = """
-You are Charlie AI, a local-first J.A.R.V.I.S.-style assistant.
+You are Zorali AI, a local-first J.A.R.V.I.S.-style assistant.
 Be useful, direct, and project-aware. Use concise explanations.
 When unsure, say what you know and what needs verification.
 If citations are provided, reference filenames in your answer.

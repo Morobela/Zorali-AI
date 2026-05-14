@@ -19,4 +19,4 @@ validate:
 	python -m compileall backend/app tests/backend
 
 zip:
-	cd .. && zip -r charlie-ai.zip charlie-ai
+	cd .. && zip -r zorali-ai.zip zorali-ai

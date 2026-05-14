@@ -1,12 +1,12 @@
-# Charlie AI
+# Zorali AI
 
-Charlie AI is a local-first, J.A.R.V.I.S.-style AI assistant platform for chat, software development, research, project awareness, safe tool use, and long-term memory.
+Zorali AI is a local-first, J.A.R.V.I.S.-style AI assistant platform for chat, software development, research, project awareness, safe tool use, and long-term memory.
 
 This repository is intentionally structured in **4 build phases**. Phase 1 is a working deployable app. Phases 2-4 are included as production-ready extension points and skeleton modules so the project can grow without changing the architecture.
 
-## What Charlie AI Should Be
+## What Zorali AI Should Be
 
-Charlie AI should feel like a mix of ChatGPT, Claude, and a local J.A.R.V.I.S. interface:
+Zorali AI should feel like a mix of ChatGPT, Claude, and a local J.A.R.V.I.S. interface:
 
 - **ChatGPT/Claude style UI**: clean sidebar, chats, projects, streaming messages, file controls, artifacts panel, and status area.
 - **Claude-inspired project workspace**: project-aware memory, artifacts, GitHub/code context, and safe code review flows.
@@ -17,7 +17,7 @@ Charlie AI should feel like a mix of ChatGPT, Claude, and a local J.A.R.V.I.S. i
 
 ## Brand Identity
 
-Use the provided Charlie AI logo:
+Use the provided Zorali AI logo:
 
 ```txt
 frontend/src/assets/charlie-logo.png
@@ -27,15 +27,15 @@ Theme:
 
 ```css
 :root {
-  --charlie-white: #FFFFFF;
-  --charlie-bg: #F8FFF4;
-  --charlie-card: #FFFFFF;
-  --charlie-green-dark: #006B2E;
-  --charlie-green: #11A63A;
-  --charlie-lime: #9DDB00;
-  --charlie-yellow: #FFD400;
-  --charlie-text: #102014;
-  --charlie-muted: #667A6B;
+  --zorali-white: #FFFFFF;
+  --zorali-bg: #F8FFF4;
+  --zorali-card: #FFFFFF;
+  --zorali-green-dark: #006B2E;
+  --zorali-green: #11A63A;
+  --zorali-lime: #9DDB00;
+  --zorali-yellow: #FFD400;
+  --zorali-text: #102014;
+  --zorali-muted: #667A6B;
 }
 ```
 
@@ -45,7 +45,7 @@ White is a core theme color because the logo uses a clean white background.
 
 ## Phase Plan
 
-### Phase 1 — Make Charlie Talk
+### Phase 1 — Make Zorali Talk
 
 Working app:
 
@@ -87,7 +87,7 @@ Adds:
 
 Adds:
 
-- Unified `CharlieAI` runtime
+- Unified `ZoraliAI` runtime
 - Agents
 - Blackboard cognition
 - Durable workflows
@@ -173,7 +173,7 @@ WS /ws/chat/{session_id}
 Payloads:
 
 ```json
-{"mode":"chat","message":"Hello Charlie"}
+{"mode":"chat","message":"Hello Zorali"}
 ```
 
 ```json
@@ -189,7 +189,7 @@ Payloads:
 ## Repository Structure
 
 ```txt
-charlie-ai/
+zorali-ai/
 ├── backend/                  # FastAPI backend
 ├── frontend/                 # React + Vite PWA frontend
 ├── docs/                     # Architecture, API, deployment, security
@@ -227,4 +227,4 @@ Advanced phases: included as extension modules
 Battle testing: still required with real workloads
 ```
 
-Charlie AI is ready to build, deploy locally, and improve phase by phase.
+Zorali AI is ready to build, deploy locally, and improve phase by phase.

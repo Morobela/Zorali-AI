@@ -2,7 +2,7 @@ from fastapi import APIRouter
 router = APIRouter(prefix='/a2a')
 @router.get('/.well-known/agent.json')
 async def agent_card():
-    return {'agent_id': 'charlie-ai-v1', 'name': 'Charlie AI', 'skills': ['chat','task_execution','project_status']}
+    return {'agent_id': 'zorali-ai-v1', 'name': 'Zorali AI', 'skills': ['chat','task_execution','project_status']}
 @router.post('/tasks/send')
 async def send_task(body: dict):
     return {'task_id':'demo-task','status':'submitted'}

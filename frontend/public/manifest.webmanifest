@@ -1,6 +1,6 @@
 {
-  "name": "Charlie AI",
-  "short_name": "CharlieAI",
+  "name": "Zorali AI",
+  "short_name": "ZoraliAI",
   "description": "Local-first J.A.R.V.I.S.-style AI assistant",
   "start_url": "/",
   "display": "standalone",

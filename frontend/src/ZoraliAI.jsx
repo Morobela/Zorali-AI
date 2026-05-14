@@ -5,21 +5,21 @@ import { createCharlieSocket } from './api/charlieSocket.js'
 const suggestions = [
   ['💻', 'Write code', 'Create a React component for a dashboard'],
   ['🔎', 'Deep research', 'Research the best local AI stack for 2026'],
-  ['🎨', 'Generate image', 'Generate an image prompt for Charlie AI branding'],
+  ['🎨', 'Generate image', 'Generate an image prompt for Zorali AI branding'],
   ['📎', 'Analyze files', 'Explain the uploaded project files'],
   ['🧠', 'Project assistant', 'Scan this project and tell me what is broken'],
   ['🎙️', 'Voice mode', 'Start voice assistant mode'],
 ]
 
-export default function CharlieAI() {
+export default function ZoraliAI() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [connected, setConnected] = useState(false)
   const [deepSearch, setDeepSearch] = useState(false)
   const [mode, setMode] = useState('chat')
   const [status, setStatus] = useState(null)
-  const [projects, setProjects] = useState([{ id: 'default', name: 'Charlie AI', active: true }])
-  const [connectors, setConnectors] = useState({ Charlie: true, Web: true, Gemini: false, GPT: false, Images: false })
+  const [projects, setProjects] = useState([{ id: 'default', name: 'Zorali AI', active: true }])
+  const [connectors, setConnectors] = useState({ Zorali: true, Web: true, Gemini: false, GPT: false, Images: false })
   const socketRef = useRef(null)
   const sessionId = useRef(crypto.randomUUID())
 
@@ -64,11 +64,11 @@ export default function CharlieAI() {
   }
 
   return (
-    <div className="charlie-shell">
+    <div className="zorali-shell">
       <aside className="sidebar">
         <div className="brand">
-          <img src={logo} alt="Charlie AI" />
-          <div><strong>Charlie AI</strong><span>Local J.A.R.V.I.S.</span></div>
+          <img src={logo} alt="Zorali AI" />
+          <div><strong>Zorali AI</strong><span>Local J.A.R.V.I.S.</span></div>
         </div>
         <button className="new-chat" onClick={() => setMessages([])}>+ New chat</button>
         <input className="search" placeholder="Search chats..." />
@@ -78,7 +78,7 @@ export default function CharlieAI() {
         </section>
         <section>
           <div className="section-title">Recent</div>
-          <div className="recent active">Charlie AI build</div>
+          <div className="recent active">Zorali AI build</div>
           <div className="recent">Website deployment</div>
           <div className="recent">Research notes</div>
         </section>
@@ -88,7 +88,7 @@ export default function CharlieAI() {
       <main className="main">
         <header className="topbar">
           <div>
-            <h1>Charlie AI</h1>
+            <h1>Zorali AI</h1>
             <p>Chat · Code · Research · Project Status · Safe Tools</p>
           </div>
           <div className="pills">
@@ -108,8 +108,8 @@ export default function CharlieAI() {
         <section className="chat-area">
           {messages.length === 0 && (
             <div className="welcome">
-              <img src={logo} alt="Charlie AI" />
-              <h2>How can Charlie help?</h2>
+              <img src={logo} alt="Zorali AI" />
+              <h2>How can Zorali help?</h2>
               <p>Choose a starter or ask anything about your project.</p>
               <div className="cards">
                 {suggestions.map(([icon, title, prompt]) => <button key={title} onClick={() => { setInput(prompt); send(prompt) }}><span>{icon}</span><strong>{title}</strong><small>{prompt}</small></button>)}
@@ -124,7 +124,7 @@ export default function CharlieAI() {
             {['chat','task'].map(x => <button key={x} className={mode === x ? 'active' : ''} onClick={() => setMode(x)}>{x}</button>)}
             <button>📎 Attach</button><button>🎙 Voice</button><button>🎨 Image</button><button>💻 Code</button>
           </div>
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder="Message Charlie AI..." />
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder="Message Zorali AI..." />
           <button className="send" onClick={() => send()}>Send</button>
         </footer>
       </main>

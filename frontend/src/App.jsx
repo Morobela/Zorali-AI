@@ -1,2 +1,2 @@
-import CharlieAI from './CharlieAI.jsx'
-export default function App(){ return <CharlieAI /> }
+import ZoraliAI from './ZoraliAI.jsx'
+export default function App(){ return <ZoraliAI /> }

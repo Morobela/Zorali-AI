@@ -27,7 +27,7 @@ async def stream_chat(messages: list[dict], model: str | None = None) -> AsyncIt
                         yield token
     except Exception as exc:
         fallback = (
-            "Charlie AI backend is running, but Ollama is not ready yet. "
+            "Zorali AI backend is running, but Ollama is not ready yet. "
             "Run: docker compose exec ollama ollama pull llama3.1. "
             f"Details: {exc}"
         )

@@ -12,7 +12,7 @@ from app.api.artifacts import router as artifacts_router
 from app.a2a.endpoint import router as a2a_router
 from app.core.config import settings
 
-app = FastAPI(title="Charlie AI", version="1.0.0")
+app = FastAPI(title="Zorali AI", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,4 +34,4 @@ app.include_router(a2a_router)
 
 @app.get("/")
 async def root():
-    return {"name": settings.app_name, "status": "online", "message": "Charlie AI backend is running"}
+    return {"name": settings.app_name, "status": "online", "message": "Zorali AI backend is running"}
