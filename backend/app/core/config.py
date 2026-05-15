@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     ollama_host: str = "http://ollama:11434"
     ollama_model: str = "llama3.2:1b"
+    cloud_api_base: str = "https://api.openai.com/v1"
+    cloud_api_key: str = ""
+    cloud_model: str = "gpt-4o-mini"
+    provider_timeout_seconds: float = 60.0
+    web_search_enabled: bool = False
     frontend_url: str = "http://localhost:5173"
     project_root: str = "/app"
 

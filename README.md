@@ -40,6 +40,32 @@ npm ci
 npm run dev
 ```
 
+## Production deployment (Docker Compose)
+1. `cp .env.example .env` and set:
+   - `SECRET_KEY`
+   - `CLOUD_API_KEY` (optional, for cloud fallback)
+   - `WEB_SEARCH_ENABLED=true` to enable Deep Research live web search.
+2. Build and run: `docker compose up --build -d`
+3. Pull local model: `docker compose exec ollama ollama pull llama3.2:1b`
+4. Restart backend: `docker compose restart backend`
+5. Verify:
+   - `GET /api/health`
+   - `GET /api/ollama/health`
+   - `GET /api/providers/status`
+
+## Ollama + cloud fallback setup
+- Install/start Ollama locally or via docker compose (`ollama` service).
+- Pull starter model:
+  - `ollama pull llama3.2:1b` (host install), or
+  - `docker compose exec ollama ollama pull llama3.2:1b` (compose).
+- Configure optional cloud fallback in `.env`:
+  - `CLOUD_API_BASE` (OpenAI-compatible endpoint, e.g. `https://api.openai.com/v1`)
+  - `CLOUD_API_KEY` (required for cloud fallback)
+  - `CLOUD_MODEL` (default cloud model)
+- Fallback behavior:
+  - Local-first mode tries Ollama first.
+  - If local model is unavailable/fails, it falls back to cloud when `CLOUD_API_KEY` is configured.
+
 ## API overview
 - `GET /api/health`
 - `POST /api/project`, `GET /api/project`
@@ -61,10 +87,11 @@ npm run dev
 - `tests/backend`: backend test coverage
 
 ## Current limitations
-- Deep Search is UI-only for now
+- Deep Research web search uses a provider interface placeholder unless you wire a real search backend.
 - Voice and Image are placeholders
 - PDF extraction is basic and should be upgraded with pypdf
 - Persistence is JSON-based, not Postgres-backed yet
+- Memory search is currently keyword-overlap based; semantic vector memory is not implemented yet.
 
 ## Roadmap
 1. Add optional embedding retrieval mode.

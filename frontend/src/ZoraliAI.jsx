@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import logo from './assets/zorali-logo.png'
 import { createZoraliSocket } from './api/zoraliSocket.js'
 import { apiGet, apiPost, apiPut, apiUpload, apiDelete } from './api/httpClient.js'
@@ -187,6 +187,11 @@ export default function ZoraliAI() {
   const [input, setInput] = useState('')
   const [connected, setConnected] = useState(false)
   const [mode, setMode] = useState('chat')
+  const [selectedModel, setSelectedModel] = useState('llama3.2:1b')
+  const [localFirst, setLocalFirst] = useState(true)
+  const [deepResearch, setDeepResearch] = useState(false)
+  const [ollamaOk, setOllamaOk] = useState(null)
+  const [providerStatus, setProviderStatus] = useState(null)
   const socketRef = useRef(null)
   const sessionId = useRef(crypto.randomUUID())
   const bottomRef = useRef(null)
@@ -204,6 +209,7 @@ export default function ZoraliAI() {
   const [panel, setPanel] = useState(null)
   const [panelData, setPanelData] = useState(null)
   const [panelLoading, setPanelLoading] = useState(false)
+  const [memoryQuery, setMemoryQuery] = useState('')
 
   // Connectors
   const [connectors, setConnectors] = useState({ Zorali: true, Web: true, Gemini: false, GPT: false, Images: false })
@@ -235,6 +241,11 @@ export default function ZoraliAI() {
         // Backend not running yet — keep local default
         setProjects([{ id: 'default', name: 'Zorali AI' }])
       })
+  }, [])
+
+  useEffect(() => {
+    apiGet('/api/ollama/health').then(r => setOllamaOk(!!r.ok)).catch(() => setOllamaOk(false))
+    apiGet('/api/providers/status').then(setProviderStatus).catch(() => {})
   }, [])
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
@@ -296,7 +307,15 @@ export default function ZoraliAI() {
       { role: 'user', content: text },
       { role: 'assistant', content: '', streaming: true },
     ])
-    socketRef.current?.send({ mode, message: text, project_id: activeProjectId })
+    socketRef.current?.send({
+      mode,
+      message: text,
+      project_id: activeProjectId,
+      model: selectedModel,
+      local_first: localFirst,
+      deep_research: deepResearch,
+      attachments: attachedFiles,
+    })
   }
 
   // ── Project actions ───────────────────────────────────────────────────────
@@ -377,6 +396,27 @@ export default function ZoraliAI() {
     } finally {
       setPanelLoading(false)
     }
+  }
+
+  async function saveMemory() {
+    if (!input.trim()) return showToast('Type memory text in composer first.', 'info')
+    try {
+      await apiPost('/api/memory', { project_id: activeProjectId, user_id: 'local', text: input.trim() })
+      showToast('Memory saved', 'success')
+      if (panel === 'memory') loadMemory()
+    } catch (e) { showToast(`Memory save failed: ${e.message}`, 'error') }
+  }
+
+  async function searchMemory() {
+    try {
+      const data = await apiGet(`/api/memory/semantic-search?project_id=${activeProjectId}&user_id=local&q=${encodeURIComponent(memoryQuery || 'project')}`)
+      setPanelData({ type: 'memory_search', ...data })
+    } catch (e) { showToast(`Memory search failed: ${e.message}`, 'error') }
+  }
+
+  async function deleteMemory(id) {
+    await apiDelete(`/api/memory/${id}?user_id=local`)
+    loadMemory()
   }
 
   async function saveArtifact(artifactId, content) {
@@ -474,6 +514,30 @@ export default function ZoraliAI() {
         </header>
 
         <div className="connector-bar">
+          <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="conn-btn connected">
+            <option value="llama3.2:1b">llama3.2:1b (Local)</option>
+            <option value="gpt-4o-mini">gpt-4o-mini (Cloud)</option>
+          </select>
+          <button className={`conn-btn${localFirst ? ' connected' : ''}`} onClick={() => setLocalFirst(v => !v)}>
+            {localFirst ? '●' : '○'} Local-first
+          </button>
+          <button className={`conn-btn${deepResearch ? ' connected' : ''}`} onClick={() => setDeepResearch(v => !v)}>
+            {deepResearch ? '●' : '○'} Deep Research
+          </button>
+          <button className={`conn-btn${mode === 'code' ? ' connected' : ''}`} onClick={() => setMode(mode === 'code' ? 'chat' : 'code')}>
+            {mode === 'code' ? '●' : '○'} Code Mode
+          </button>
+          <button className={`conn-btn${ollamaOk ? ' connected' : ''}`} onClick={() => togglePanel('status')}>
+            {ollamaOk ? '●' : '○'} Ollama {ollamaOk ? 'Ready' : 'Offline'}
+          </button>
+          {providerStatus && (
+            <span className="conn-btn connected">
+              Active:{' '}{providerStatus.last_used_provider || 'n/a'} · Fallback:{' '}{providerStatus.fallback_used ? 'yes' : 'no'}
+            </span>
+          )}
+          <button className="conn-btn connected" onClick={() => togglePanel('memory')}>
+            ● Memory ({messages.length})
+          </button>
           {Object.entries(connectors).map(([name, active]) => (
             <button
               key={name}
@@ -592,6 +656,26 @@ export default function ZoraliAI() {
                       <div className="memory-content">{(m.content || '').slice(0, 120)}{m.content?.length > 120 ? '…' : ''}</div>
                     </div>
                   ))
+              )}
+              {panel === 'memory' && (
+                <div style={{marginTop: 12}}>
+                  <button className="toolbar-btn" onClick={saveMemory}>Save composer as memory</button>
+                  <div style={{display:'flex', gap:8, marginTop:8}}>
+                    <input value={memoryQuery} onChange={e=>setMemoryQuery(e.target.value)} placeholder="Search memory..." />
+                    <button className="toolbar-btn" onClick={searchMemory}>Search</button>
+                  </div>
+                  {panelData?.type === 'memory_search' && (
+                    <div>
+                      <small>{panelData.note}</small>
+                      {(panelData.results || []).map((m) => (
+                        <div key={m.id} className="memory-item">
+                          <div className="memory-content">{m.text}</div>
+                          <button className="toolbar-btn" onClick={() => deleteMemory(m.id)}>Delete</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Artifacts panel */}
