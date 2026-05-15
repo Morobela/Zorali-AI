@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     redis_url: str = "redis://redis:6379/0"
     ollama_host: str = "http://ollama:11434"
-    ollama_model: str = "llama3.1"
+    ollama_model: str = "llama3.2:1b"
     frontend_url: str = "http://localhost:5173"
     project_root: str = "/app"
 

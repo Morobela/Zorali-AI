@@ -20,15 +20,13 @@ Zorali AI is a **local-first assistant MVP** with Claude/ChatGPT-style chat UX, 
 
 ## Docker quick start
 ```bash
+cp .env.example .env
 docker compose up --build
+docker compose exec ollama ollama pull llama3.2:1b
+docker compose restart backend
 ```
 - Frontend: http://localhost:5173
 - Backend health: http://localhost:8000/api/health
-
-## Pull lightweight model
-```bash
-docker compose exec ollama ollama pull llama3.2:1b
-```
 
 ## Local development
 ```bash
@@ -61,6 +59,12 @@ npm run dev
 - `backend/app/db/repositories.py`: JSON persistence and retrieval
 - `frontend/src`: app UI and client wiring
 - `tests/backend`: backend test coverage
+
+## Current limitations
+- Deep Search is UI-only for now
+- Voice and Image are placeholders
+- PDF extraction is basic and should be upgraded with pypdf
+- Persistence is JSON-based, not Postgres-backed yet
 
 ## Roadmap
 1. Add optional embedding retrieval mode.
