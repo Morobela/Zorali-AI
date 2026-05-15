@@ -5,19 +5,32 @@ from app.db.repositories import repo
 
 router = APIRouter(prefix='/api/files')
 
-TEXT_EXTS = {'.txt', '.md', '.json', '.csv', '.py', '.js', '.ts', '.html', '.css'}
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+TEXT_EXTS = {'.txt', '.md', '.json', '.csv', '.py', '.js', '.ts', '.html', '.css', '.jsx', '.tsx', '.toml', '.yaml', '.yml', '.xml', '.sh', '.pdf'}
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
 def extract_text(filename: str, content: bytes) -> str:
     lower = filename.lower()
+    if lower.endswith('.pdf'):
+        # Basic PDF text extraction: strip binary, grab printable ASCII
+        try:
+            raw_str = content.decode('latin-1', errors='replace')
+            import re
+            text_parts = re.findall(r'\(([^\)]{1,400})\)', raw_str)
+            extracted = ' '.join(text_parts)
+            if len(extracted.strip()) < 20:
+                return '[PDF uploaded — native text extraction not yet available. Install pypdf for full support.]'
+            return extracted
+        except Exception:
+            return '[PDF uploaded — could not extract text.]'
     for ext in TEXT_EXTS:
         if lower.endswith(ext):
             return content.decode('utf-8', errors='ignore')
-    raise HTTPException(status_code=400, detail='Unsupported file type')
+    raise HTTPException(status_code=400, detail=f'Unsupported file type: {Path(filename).suffix}')
 
 
 def chunk_text(text: str, size: int = 700, overlap: int = 100):
+    """Split text into overlapping chunks for retrieval."""
     chunks = []
     idx = 0
     start = 0
@@ -25,7 +38,11 @@ def chunk_text(text: str, size: int = 700, overlap: int = 100):
         end = min(len(text), start + size)
         chunks.append({'id': idx, 'text': text[start:end]})
         idx += 1
-        start = max(end - overlap, end)
+        # BUG FIX: was `max(end - overlap, end)` which always == end (no overlap)
+        next_start = end - overlap
+        if next_start <= start:
+            next_start = end  # safety guard against infinite loop on tiny texts
+        start = next_start
     return chunks
 
 
@@ -38,7 +55,7 @@ async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail='Hidden files are blocked')
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail='File too large')
+        raise HTTPException(status_code=400, detail='File too large (max 5 MB)')
     text = extract_text(safe_name, raw)
     chunks = chunk_text(text)
     try:
@@ -55,3 +72,13 @@ async def search(project_id: str = Query(...), q: str = Query(...), limit: int =
 @router.get('/list')
 async def list_files(project_id: str = Query(...)):
     return repo.list_files(project_id)
+
+
+@router.delete('/{file_id}')
+async def delete_file(file_id: str):
+    """Remove a file record and its stored bytes."""
+    deleted = repo.delete_file(file_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail='File not found')
+    return {'deleted': file_id}
+

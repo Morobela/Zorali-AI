@@ -1,1 +1,0 @@
-print('Seed admin placeholder')

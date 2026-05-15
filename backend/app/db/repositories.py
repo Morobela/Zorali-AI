@@ -173,6 +173,26 @@ class Repository:
             return None
 
         return self.store.mutate(_update)
+    def delete_file(self, file_id: str) -> bool:
+        """Remove a file record from the store and delete its bytes on disk."""
+        removed: dict | None = None
+
+        def _remove(s):
+            nonlocal removed
+            for i, f in enumerate(s['files']):
+                if f['id'] == file_id:
+                    removed = s['files'].pop(i)
+                    return True
+            return False
+
+        self.store.mutate(_remove)
+        if removed is None:
+            return False
+        try:
+            Path(removed['path']).unlink(missing_ok=True)
+        except OSError:
+            pass
+        return True
 
 
 repo = Repository()
