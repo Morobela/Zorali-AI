@@ -1,17 +1,24 @@
-from app.tools.registry import registry
+from app.providers.search_provider import search_provider
 
 
 async def run_deep_research(message: str, context: dict) -> dict:
-    query_parts = [
-        f"Background: {message}",
-        f"Latest facts: {message}",
-        f"Risks/tradeoffs: {message}",
+    steps = [
+        f"Break down question: {message}",
+        "Search external sources",
+        "Synthesize findings with citations",
     ]
-    web_tool = registry.get("web_search")
-    web_result = web_tool.handler({"query": message})
+    search = await search_provider.search(message, limit=5)
+    citations = [{"title": r["title"], "url": r["url"]} for r in search.get("results", [])]
+    if not search.get("configured"):
+        return {
+            "agent": "deep_research",
+            "steps": steps,
+            "citations": [],
+            "message": "Deep Research is configured as coming soon. Enable WEB_SEARCH_ENABLED=true to activate live search.",
+        }
     return {
         "agent": "deep_research",
-        "steps": query_parts,
-        "web_search": web_result,
-        "note": "Web search provider is currently a placeholder; citations may be limited until configured.",
+        "steps": steps,
+        "citations": citations,
+        "message": "Live web search completed.",
     }

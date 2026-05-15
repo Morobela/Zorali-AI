@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from app.db.repositories import repo
+from app.memory.vector_store import vector_store
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
@@ -19,6 +20,15 @@ def save_memory(payload: MemoryIn):
 @router.get("/search")
 def search_memory(project_id: str, q: str, user_id: str = Query("local")):
     return repo.search_memories(project_id, user_id, q)
+
+
+@router.get("/semantic-search")
+def semantic_search_memory(project_id: str, q: str, user_id: str = Query("local")):
+    return {
+        "mode": "basic-semantic-interface",
+        "results": vector_store.semantic_search(project_id, user_id, q),
+        "note": "Embeddings are not configured; using keyword fallback.",
+    }
 
 
 @router.delete("/{memory_id}")

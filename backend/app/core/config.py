@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cloud_api_key: str = ""
     cloud_model: str = "gpt-4o-mini"
     provider_timeout_seconds: float = 60.0
+    web_search_enabled: bool = False
     frontend_url: str = "http://localhost:5173"
     project_root: str = "/app"
 

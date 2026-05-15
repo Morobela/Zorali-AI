@@ -40,6 +40,19 @@ npm ci
 npm run dev
 ```
 
+## Production deployment (Docker Compose)
+1. `cp .env.example .env` and set:
+   - `SECRET_KEY`
+   - `CLOUD_API_KEY` (optional, for cloud fallback)
+   - `WEB_SEARCH_ENABLED=true` to enable Deep Research live web search.
+2. Build and run: `docker compose up --build -d`
+3. Pull local model: `docker compose exec ollama ollama pull llama3.2:1b`
+4. Restart backend: `docker compose restart backend`
+5. Verify:
+   - `GET /api/health`
+   - `GET /api/ollama/health`
+   - `GET /api/providers/status`
+
 ## Ollama + cloud fallback setup
 - Install/start Ollama locally or via docker compose (`ollama` service).
 - Pull starter model:
