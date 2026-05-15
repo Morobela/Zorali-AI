@@ -33,7 +33,7 @@ class JsonStore:
         self._lock = Lock()
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.file_path.exists():
-            self._write({"projects": [], "chats": [], "files": [], "artifacts": []})
+            self._write({"projects": [], "chats": [], "files": [], "artifacts": [], "memories": []})
 
     def _read(self) -> dict[str, Any]:
         with self.file_path.open("r", encoding="utf-8") as f:
@@ -173,6 +173,34 @@ class Repository:
             return None
 
         return self.store.mutate(_update)
+
+    def save_memory(self, project_id: str, user_id: str, text: str):
+        memory = {"id": str(uuid4()), "project_id": project_id, "user_id": user_id, "text": text, "created_at": _utc_now()}
+        self.store.mutate(lambda s: s["memories"].append(memory))
+        return memory
+
+    def search_memories(self, project_id: str, user_id: str, query: str, limit: int = 5):
+        q_tokens = set(_tokens(query))
+        if not q_tokens:
+            return []
+        rows = self.store.mutate(lambda s: [m for m in s["memories"] if m["project_id"] == project_id and m["user_id"] == user_id])
+        scored = []
+        for row in rows:
+            t = set(_tokens(row["text"]))
+            overlap = q_tokens.intersection(t)
+            if overlap:
+                scored.append({**row, "score": round(len(overlap) / max(len(q_tokens), 1), 4)})
+        scored.sort(key=lambda r: r["score"], reverse=True)
+        return scored[:limit]
+
+    def delete_memory(self, memory_id: str, user_id: str) -> bool:
+        def _delete(s):
+            for i, m in enumerate(s["memories"]):
+                if m["id"] == memory_id and m["user_id"] == user_id:
+                    s["memories"].pop(i)
+                    return True
+            return False
+        return self.store.mutate(_delete)
     def delete_file(self, file_id: str) -> bool:
         """Remove a file record from the store and delete its bytes on disk."""
         removed: dict | None = None
