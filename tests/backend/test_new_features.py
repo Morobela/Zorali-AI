@@ -41,7 +41,7 @@ def test_upload_path_traversal_protection():
 def test_chat_rag_context_in_prompt(monkeypatch):
     captured = {}
 
-    async def fake_stream_llm(messages):
+    async def fake_stream_llm(messages, **kwargs):
         captured['messages'] = messages
         for token in ['ok']:
             yield token
