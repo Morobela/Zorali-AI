@@ -1,9 +1,13 @@
+import time
+from uuid import uuid4
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.models.llm import stream_llm
 from app.reality.project_scanner import status_report
 from app.core.config import settings
 from app.db.repositories import repo
 from app.agents.orchestrator import route_agent
+from app.learning.trace_store import trace_store, Trace
+from app.chains.sequential import rag_chain
 
 router = APIRouter()
 
@@ -89,11 +93,26 @@ async def chat_ws(websocket: WebSocket, session_id: str):
             prompt_messages = [{"role": "system", "content": SYSTEM_PROMPT},
                                {"role": "system", "content": f"Agent plan: {agent_plan}"}] + ([{"role": "system", "content": f"Project file context:\n{rag_block}"}] if rag_block else []) + [{"role": m["role"], "content": m["content"]} for m in memory]
             full = ""
+            t_start = time.perf_counter()
             async for token in stream_llm(prompt_messages, model=selected_model, local_first=local_first):
                 full += token
                 await websocket.send_json({"type": "token", "content": token})
+            latency_ms = (time.perf_counter() - t_start) * 1000
             citations = [{k: c[k] for k in ("file_id", "filename", "chunk_id", "score")} for c in retrieved]
             repo.add_chat_message(project_id, session_id, "assistant", full, citations=citations)
             await websocket.send_json({"type": "done", "citations": citations})
+
+            # Record trace for local learning loop (privacy-first: stays on device)
+            trace_store.record(Trace(
+                trace_id=str(uuid4()),
+                session_id=session_id,
+                user_message=message,
+                assistant_response=full,
+                mode=resolved_mode,
+                provider=data.get("provider", "ollama"),
+                latency_ms=latency_ms,
+                tokens=len(full.split()),
+                rating=None,
+            ))
     except WebSocketDisconnect:
         return

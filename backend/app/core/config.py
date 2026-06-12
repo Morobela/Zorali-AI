@@ -22,6 +22,34 @@ class Settings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_port: int = 5432
 
+    # Rate limiting (OpenJarvis energy/cost + vLLM multi-user)
+    rate_limit_capacity: float = 60.0    # max burst tokens per client
+    rate_limit_refill: float = 1.0       # tokens refilled per second
+
+    # Inference memory pool (vLLM PagedAttention-inspired)
+    memory_pool_blocks: int = 256
+    memory_pool_block_size: int = 512
+
+    # Batch processor concurrency (vLLM continuous batching)
+    batch_max_concurrent: int = 8
+
+    # Energy scoring budget (OpenJarvis cost-aware routing)
+    inference_cost_budget_usd: float = 10.0
+
+    # Local learning loop (OpenJarvis)
+    learning_loop_enabled: bool = True
+    learning_min_improvement_pct: float = 2.0
+
+    # Task queue (Higgsfield experiment queue)
+    task_queue_max_concurrent: int = 4
+    task_queue_cost_budget_usd: float = 50.0
+
+    # Skills system (OpenJarvis)
+    skills_autoload: bool = True
+
+    # Checkpoint persistence (TensorFlow SavedModel-inspired)
+    checkpoint_enabled: bool = True
+
     @property
     def postgres_url(self) -> str:
         return (
