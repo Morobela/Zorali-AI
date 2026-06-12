@@ -11,13 +11,16 @@ learning loop state) and allow restore after restart without data loss.
 """
 from __future__ import annotations
 import json
+import os
 import time
 import hashlib
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
-CHECKPOINT_DIR = Path("/app/data/checkpoints")
+# Honour ZORALI_DATA_DIR env var so CI runners and non-Docker environments work
+_DATA_DIR = Path(os.environ.get("ZORALI_DATA_DIR", "/app/data"))
+CHECKPOINT_DIR = _DATA_DIR / "checkpoints"
 MAX_CHECKPOINTS = 5  # keep last 5, oldest pruned (TF SavedModel deduplication)
 
 

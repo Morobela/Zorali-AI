@@ -6,6 +6,7 @@ Privacy-first: no trace data is ever sent to the cloud.
 """
 from __future__ import annotations
 import json
+import os
 import time
 import hashlib
 from pathlib import Path
@@ -13,7 +14,9 @@ from dataclasses import dataclass, asdict, field
 from typing import Any
 from collections import deque
 
-TRACES_FILE = Path("/app/data/traces.jsonl")
+# Honour ZORALI_DATA_DIR env var so CI runners and non-Docker environments work
+_DATA_DIR = Path(os.environ.get("ZORALI_DATA_DIR", "/app/data"))
+TRACES_FILE = _DATA_DIR / "traces.jsonl"
 MAX_IN_MEMORY = 1000
 MIN_SFT_PAIRS = 10  # OpenJarvis minimum before triggering training
 
