@@ -4,6 +4,8 @@ from pydantic import BaseModel
 import ast
 import operator as op
 from app.tools.file_tools import read_file, write_file
+from app.core.audit import audit, AuditEvent
+from app.core.hooks import global_hooks
 
 
 class ToolSpec(BaseModel):
@@ -11,9 +13,20 @@ class ToolSpec(BaseModel):
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     handler: Callable
+    tags: list[str] = []
+    requires_role: str = "user"
 
 
 class ToolRegistry:
+    """
+    Enhanced tool registry.
+    Patterns:
+    - PyTorch: dict-based component registration
+    - LangChain BaseToolkit: collection pattern with get_tools()
+    - OpenJarvis SkillTool: bridges skill manifests to standard format
+    - PyTorch hooks: pre/post hook on every tool execution
+    """
+
     def __init__(self):
         self._tools: dict[str, ToolSpec] = {}
 
@@ -21,10 +34,35 @@ class ToolRegistry:
         self._tools[spec.name] = spec
 
     def get(self, name: str) -> ToolSpec:
+        if name not in self._tools:
+            raise KeyError(f"Tool {name!r} not registered")
         return self._tools[name]
 
     def list_tools(self) -> list[str]:
         return sorted(self._tools.keys())
+
+    def get_tools(self) -> list[ToolSpec]:
+        """LangChain BaseToolkit-style collection accessor."""
+        return list(self._tools.values())
+
+    async def execute(self, name: str, inputs: dict[str, Any], actor: str = "system") -> dict[str, Any]:
+        """
+        Execute a tool through the hook system.
+        Pre-hook fires before execution, post-hook after.
+        Audit records every tool call.
+        """
+        spec = self.get(name)
+
+        async def _run():
+            return spec.handler(inputs)
+
+        try:
+            result = await global_hooks.call_with_hooks(_run)
+            audit.record(AuditEvent.TOOL_EXECUTED, actor=actor, resource=name, outcome="ok")
+            return result
+        except Exception as exc:
+            audit.record(AuditEvent.TOOL_BLOCKED, actor=actor, resource=name, outcome="error", error=str(exc))
+            raise
 
 
 def safe_calculate(expression: str) -> float:
