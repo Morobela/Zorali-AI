@@ -2,17 +2,32 @@ from app.agents.simple_chat import run_simple_chat
 from app.agents.deep_research import run_deep_research
 from app.agents.code_assistant import run_code_assistant
 from app.agents.file_analysis import run_file_analysis
+from app.agents.graph import GraphAgent
 from app.orchestration.fault_tolerant import executor
+
+_graph_agent = GraphAgent()
 
 
 async def route_agent(mode: str, message: str, context: dict) -> dict:
     """
     Route to the appropriate agent and execute with fault-tolerant wrapper.
-    Pattern: Higgsfield multi-stage pipeline + OpenJarvis error classification.
-    If the selected agent fails, fault_tolerant executor retries up to 3 times
-    with exponential backoff before escalating.
+
+    Modes
+    -----
+    graph / tools   → GraphAgent  (LLM + tool-execution loop)
+    deep_research   → DeepResearch
+    code            → CodeAssistant
+    file_analysis   → FileAnalysis
+    <anything else> → SimpleChat  (direct response, no tools)
+
+    "tools" is an alias for "graph" so callers can use either name when
+    they want tool-capable execution.
     """
     async def _dispatch():
+        if mode in ("graph", "tools"):
+            history = context.get("history", [])
+            messages = history + [{"role": "user", "content": message}]
+            return await _graph_agent.run(message, messages=messages)
         if mode == "deep_research":
             return await run_deep_research(message, context)
         if mode == "code":
@@ -29,7 +44,6 @@ async def route_agent(mode: str, message: str, context: dict) -> dict:
     )
     if session.result is not None:
         return session.result
-    # If all retries failed, fall back to simple chat without raising
     try:
         return await run_simple_chat(message, context)
     except Exception:
