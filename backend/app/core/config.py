@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # Checkpoint persistence (TensorFlow SavedModel-inspired)
     checkpoint_enabled: bool = True
 
+    # Hybrid retrieval (2026 production-RAG: hybrid fusion + reranking + contextual)
+    rag_rerank_enabled: bool = True        # stage-2 cross-encoder-style rerank
+    rag_candidate_pool: int = 20           # shortlist size before reranking
+    rag_rrf_k: int = 60                    # Reciprocal Rank Fusion constant
+    rag_contextual_enabled: bool = True    # prepend document context to chunks
+    rag_embeddings_enabled: bool = False   # opt-in dense signal via Ollama
+    rag_embedding_model: str = "nomic-embed-text"
+
     @property
     def postgres_url(self) -> str:
         return (

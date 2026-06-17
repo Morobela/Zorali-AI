@@ -130,26 +130,31 @@ class Repository:
         return self.store.mutate(lambda s: [f for f in s["files"] if f["project_id"] == project_id])
 
     def search_chunks(self, project_id: str, query: str, limit: int = 5):
-        q_tokens = set(_tokens(query))
-        if not q_tokens:
+        """Retrieve the most relevant file chunks for a query.
+
+        Uses the two-stage hybrid retrieval engine (BM25 + TF-IDF fused with
+        Reciprocal Rank Fusion, then a cross-encoder-style rerank) over
+        contextualised chunks. Replaces the previous naive token-overlap scorer.
+        The return shape is unchanged: {file_id, filename, chunk_id, text, score}.
+        """
+        if not query or not query.strip():
             return []
+        from app.memory.hybrid_search import engine, build_chunk_documents
+        from app.core.config import settings
+
         files = self.list_files(project_id)
-        scored = []
-        for f in files:
-            filename_tokens = set(_tokens(f["filename"]))
-            filename_boost = 0.25 if q_tokens.intersection(filename_tokens) else 0.0
-            for c in f["chunks"]:
-                chunk_tokens = set(_tokens(c["text"]))
-                overlap = q_tokens.intersection(chunk_tokens)
-                if not overlap:
-                    continue
-                overlap_ratio = len(overlap) / max(len(q_tokens), 1)
-                concise_boost = min(0.15, 200 / max(len(c["text"]), 200) * 0.15)
-                recency_boost = 0.1
-                score = overlap_ratio + filename_boost + concise_boost + recency_boost
-                scored.append({"file_id": f["id"], "filename": f["filename"], "chunk_id": c["id"], "text": c["text"], "score": round(score, 4)})
-        scored.sort(key=lambda x: x["score"], reverse=True)
-        return scored[:limit]
+        documents = build_chunk_documents(files, contextual=settings.rag_contextual_enabled)
+        results = engine.search(query, documents, top_k=limit)
+        return [
+            {
+                "file_id": r.doc["file_id"],
+                "filename": r.doc["filename"],
+                "chunk_id": r.doc["chunk_id"],
+                "text": r.doc["text"],
+                "score": round(r.score, 4),
+            }
+            for r in results
+        ]
 
     def create_artifact(self, project_id: str, name: str, content: str):
         artifact = {"id": str(uuid4()), "project_id": project_id, "name": name, "versions": [{"version": 1, "content": content, "created_at": _utc_now()}], "created_at": _utc_now()}
@@ -178,6 +183,11 @@ class Repository:
         memory = {"id": str(uuid4()), "project_id": project_id, "user_id": user_id, "text": text, "created_at": _utc_now()}
         self.store.mutate(lambda s: s["memories"].append(memory))
         return memory
+
+    def list_memories(self, project_id: str, user_id: str):
+        return self.store.mutate(
+            lambda s: [m for m in s["memories"] if m["project_id"] == project_id and m["user_id"] == user_id]
+        )
 
     def search_memories(self, project_id: str, user_id: str, query: str, limit: int = 5):
         q_tokens = set(_tokens(query))
