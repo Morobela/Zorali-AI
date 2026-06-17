@@ -490,8 +490,11 @@ export default function ZoraliAI() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-left">
-            <h1>Zorali AI</h1>
-            <p>Chat · Code · Research · Project Status · Safe Tools</p>
+            <img src={logo} alt="Zorali AI" className="topbar-logo" />
+            <div>
+              <h1>Zorali AI</h1>
+              <p>Chat · Code · Research · Project Status · Safe Tools</p>
+            </div>
           </div>
           <div className="pills">
             <button
