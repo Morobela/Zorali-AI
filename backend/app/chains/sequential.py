@@ -9,10 +9,10 @@ from app.chains.base import Runnable, RunnableLambda, RunnableConfig
 
 
 async def _rag_retrieve(inputs: dict) -> dict:
-    from app.db.repositories import repo
+    from app.memory.retrieval import hybrid_retriever
     project_id = inputs.get("project_id", "default")
     message = inputs.get("message", "")
-    hits = repo.search_chunks(project_id, message, limit=3)
+    hits = await hybrid_retriever.retrieve(message, top_k=3, project_id=project_id)
     return {**inputs, "retrieved_chunks": hits}
 
 

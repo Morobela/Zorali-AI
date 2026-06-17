@@ -1,7 +1,11 @@
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from app.db.repositories import repo
+from app.core.config import settings
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/files')
 
@@ -58,6 +62,23 @@ async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail='File too large (max 5 MB)')
     text = extract_text(safe_name, raw)
     chunks = chunk_text(text)
+
+    # Pre-compute and store per-chunk embeddings so queries only need to embed
+    # themselves rather than re-embedding the entire document set every time.
+    if settings.rag_embeddings_enabled:
+        try:
+            from app.memory.embeddings import embed_texts
+            from app.memory.hybrid_search import _document_keywords
+            doc_keywords = _document_keywords(text)
+            header = f"{safe_name} :: {' '.join(doc_keywords)}"
+            search_texts = [f"{header}\n{c['text']}" for c in chunks]
+            vectors = await embed_texts(search_texts)
+            if vectors and len(vectors) == len(chunks):
+                for chunk, vec in zip(chunks, vectors):
+                    chunk["embedding"] = vec
+        except Exception as exc:
+            _log.warning("Embedding generation skipped at upload: %s", exc)
+
     try:
         return repo.save_file(project_id=project_id, filename=safe_name, content=raw, extracted_text=text, chunks=chunks)
     except ValueError as exc:

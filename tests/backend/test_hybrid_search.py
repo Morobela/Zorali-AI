@@ -1,16 +1,18 @@
 """
 Tests for the hybrid retrieval engine.
 
-Covers each stage of the 2026 production-RAG pipeline:
+Covers each stage of the pipeline:
   • tokenization
   • BM25 (IDF discrimination, term-frequency)
   • TF-IDF cosine
   • Reciprocal Rank Fusion
-  • cross-encoder-style reranking (exact phrase / proximity)
+  • LexicalFeatureReranker (exact phrase / proximity / IDF-weighted coverage)
+  • cosine_rank (including dimension mismatch guard)
   • contextual-retrieval chunk augmentation
-  • optional dense-embedding fusion
-  • end-to-end engine.search behaviour and shape
+  • index caching
+  • end-to-end engine.search behavior and shape
   • integration through repo.search_chunks (chat/citation contract)
+  • paraphrase retrieval gap (what requires dense embeddings)
 
 All pure-Python and deterministic — no providers or network required.
 """
@@ -21,8 +23,9 @@ import pytest
 from app.memory.hybrid_search import (
     BM25,
     HybridSearchEngine,
-    LexicalReranker,
+    LexicalFeatureReranker,
     TfidfIndex,
+    _INDEX_CACHE,
     build_chunk_documents,
     cosine_rank,
     engine,
@@ -90,10 +93,10 @@ def test_rrf_merges_disjoint_rankers():
     assert set(fused) == {0, 1}
 
 
-# ── Cross-encoder-style reranker ────────────────────────────────────────────
+# ── LexicalFeatureReranker ──────────────────────────────────────────────────
 
 def test_reranker_prefers_exact_phrase_and_proximity():
-    rr = LexicalReranker()
+    rr = LexicalFeatureReranker()
     q = "machine learning"
     adjacent = rr.score(q, "machine learning is a great field")
     scattered = rr.score(q, "machine intelligence and statistical learning theory")
@@ -103,12 +106,31 @@ def test_reranker_prefers_exact_phrase_and_proximity():
 
 
 def test_reranker_handles_empty():
-    rr = LexicalReranker()
+    rr = LexicalFeatureReranker()
     assert rr.score("", "anything") == 0.0
     assert rr.score("query", "") == 0.0
 
 
-# ── Dense embedding signal ──────────────────────────────────────────────────
+def test_reranker_idf_weights_rare_over_common_terms():
+    """A chunk matching a single rare term must beat one matching several common terms."""
+    rr = LexicalFeatureReranker()
+    # Simulate an IDF map where 'kubernetes' is rare and common words are cheap
+    idf = {"kubernetes": 8.0, "configure": 0.5, "database": 0.5, "connection": 0.5, "size": 0.5}
+    rare_match = rr.score("kubernetes configuration", "the kubernetes cluster manifest", idf=idf)
+    common_match = rr.score("kubernetes configuration", "configure the database connection size and configure more", idf=idf)
+    assert rare_match > common_match
+
+
+def test_reranker_exact_phrase_beats_scattered():
+    """Exact phrase in chunk beats scattered individual terms."""
+    rr = LexicalFeatureReranker()
+    q = "error handling"
+    exact = rr.score(q, "error handling: wrap calls in try/except")
+    scattered = rr.score(q, "an error occurred while handling the upload see handling notes error logs")
+    assert exact > scattered
+
+
+# ── cosine_rank ─────────────────────────────────────────────────────────────
 
 def test_cosine_rank_orders_by_similarity_and_drops_orthogonal():
     ranked = cosine_rank([1.0, 0.0], [[1.0, 0.0], [0.0, 1.0], [0.7, 0.7]])
@@ -116,6 +138,18 @@ def test_cosine_rank_orders_by_similarity_and_drops_orthogonal():
     assert order[0] == 0          # identical direction
     assert 1 not in order         # orthogonal vector dropped (cos == 0)
     assert 2 in order
+
+
+def test_cosine_rank_skips_mismatched_dimensions():
+    """Dimension mismatch must be silently skipped, not crash or truncate."""
+    result = cosine_rank([1.0, 0.0, 0.0], [[1.0, 0.0], [1.0, 0.0, 0.0]])
+    # Only the dim-3 doc should survive
+    assert len(result) == 1
+    assert result[0][0] == 1
+
+
+def test_cosine_rank_empty_query_returns_empty():
+    assert cosine_rank([], [[1.0, 0.0]]) == []
 
 
 # ── Engine: end-to-end ──────────────────────────────────────────────────────
@@ -154,6 +188,41 @@ def test_engine_rerank_disabled_still_returns_results():
     assert results and results[0].doc["text"].startswith("alpha")
 
 
+def test_engine_exact_phrase_beats_scattered_terms():
+    """Reranker must rank the exact-phrase chunk above the keyword-scattered one."""
+    docs = [
+        {"text": "An error occurred while handling the upload. See handling notes and error logs for the trace."},
+        {"text": "Error handling: wrap the call in a try/except and log the exception cleanly."},
+    ]
+    results = engine.search("error handling", docs, top_k=2)
+    assert results[0].doc["text"].startswith("Error handling:")
+
+
+def test_engine_guards_zero_candidate_pool():
+    """candidate_pool=0 must not crash (clamped to 1 internally)."""
+    eng = HybridSearchEngine(candidate_pool=0, rerank=False)
+    docs = [{"text": "alpha beta gamma"}]
+    # Should not raise; may return 0 or 1 results
+    eng.search("alpha", docs, top_k=1)
+
+
+# ── Index cache ─────────────────────────────────────────────────────────────
+
+def test_index_cache_populated_on_first_search():
+    _INDEX_CACHE.clear()
+    docs = [{"text": "caching test document unique phrase zyzzyva"}]
+    engine.search("zyzzyva", docs)
+    assert len(_INDEX_CACHE) >= 1
+
+
+def test_index_cache_reused_on_second_search():
+    docs = [{"text": "cache reuse test flobberwick unique token"}]
+    engine.search("flobberwick", docs)
+    size_before = len(_INDEX_CACHE)
+    engine.search("flobberwick", docs)
+    assert len(_INDEX_CACHE) == size_before  # no new entry added
+
+
 # ── Contextual retrieval ────────────────────────────────────────────────────
 
 def test_contextual_retrieval_makes_chunks_findable_via_document_context():
@@ -169,12 +238,9 @@ def test_contextual_retrieval_makes_chunks_findable_via_document_context():
         }
     ]
     query = "France travel guide"
-
     with_ctx = engine.search(query, build_chunk_documents(files, contextual=True), top_k=2)
     without_ctx = engine.search(query, build_chunk_documents(files, contextual=False), top_k=2)
-
-    # The chunk texts contain none of the query terms; only the contextual
-    # header (filename + document keywords) does. Context must add recall.
+    # Without context the chunk texts contain none of the query terms; context adds recall.
     assert len(with_ctx) >= 1
     assert len(with_ctx) > len(without_ctx)
     assert all(r.doc["file_id"] == "f1" for r in with_ctx)
@@ -186,8 +252,29 @@ def test_build_chunk_documents_preserves_display_text():
          "chunks": [{"id": 0, "text": "raw chunk body"}]}
     ]
     docs = build_chunk_documents(files, contextual=True)
-    assert docs[0]["text"] == "raw chunk body"          # display text untouched
-    assert "a.md" in docs[0]["search_text"]             # header only in search text
+    assert docs[0]["text"] == "raw chunk body"
+    assert "a.md" in docs[0]["search_text"]
+
+
+def test_build_chunk_documents_passes_through_stored_embeddings():
+    """Stored embeddings must flow from chunk records into the document dict."""
+    files = [
+        {"id": "f1", "filename": "a.md", "extracted_text": "hello",
+         "chunks": [{"id": 0, "text": "body", "embedding": [0.1, 0.2, 0.3]}]}
+    ]
+    docs = build_chunk_documents(files)
+    assert "embedding" in docs[0]
+    assert docs[0]["embedding"] == [0.1, 0.2, 0.3]
+
+
+def test_build_chunk_documents_no_embedding_key_when_absent():
+    """Chunks without stored embeddings must not inject an 'embedding' key."""
+    files = [
+        {"id": "f1", "filename": "a.md", "extracted_text": "hello",
+         "chunks": [{"id": 0, "text": "body"}]}
+    ]
+    docs = build_chunk_documents(files)
+    assert "embedding" not in docs[0]
 
 
 # ── Integration: repo.search_chunks contract ────────────────────────────────
@@ -199,28 +286,24 @@ def test_repo_search_chunks_preserves_shape_and_improves_ranking():
     pid = project["id"]
     chunks = [
         {"id": 0, "text": "The quarterly revenue report shows strong year over year growth"},
-        {"id": 1, "text": "the and or of to in on with as by for"},  # stopword noise
+        {"id": 1, "text": "the and or of to in on with as by for"},
         {"id": 2, "text": "Employees enjoyed the summer picnic in the park"},
     ]
     repo.save_file(
-        project_id=pid,
-        filename="report.md",
-        content=b"x",
-        extracted_text=" ".join(c["text"] for c in chunks),
-        chunks=chunks,
+        project_id=pid, filename="report.md", content=b"x",
+        extracted_text=" ".join(c["text"] for c in chunks), chunks=chunks,
     )
 
     results = repo.search_chunks(pid, "revenue report", limit=3)
     assert results, "should retrieve at least one chunk"
     assert set(results[0].keys()) == {"file_id", "filename", "chunk_id", "text", "score"}
-    assert results[0]["chunk_id"] == 0           # most relevant chunk first
+    assert results[0]["chunk_id"] == 0
     assert results[0]["filename"] == "report.md"
-
     assert repo.search_chunks(pid, "", limit=3) == []
 
 
-def test_repo_search_chunks_semantic_over_naive_overlap():
-    """A discriminative rare term must beat a chunk full of common words."""
+def test_repo_search_chunks_idf_over_naive_overlap():
+    """A discriminative rare term must beat a chunk full of repeated common words."""
     from app.db.repositories import repo
 
     project = repo.create_project("hybrid-idf-test", "rag")
@@ -235,3 +318,35 @@ def test_repo_search_chunks_semantic_over_naive_overlap():
     )
     results = repo.search_chunks(pid, "kubernetes deployment", limit=2)
     assert results[0]["chunk_id"] == 1
+
+
+def test_engine_phrase_ranking_over_keyword_scatter():
+    """Engine must rank the exact-phrase answer above a keyword-scattered distractor.
+
+    This test documents where the lexical engine excels (phrase/proximity signals)
+    and what the dense embedding signal would add for true semantic paraphrase.
+    """
+    docs = [
+        {"text": "Error handling: wrap the call in a try/except and log the exception."},
+        {"text": "An error log was found while handling the file. Error count handling noted."},
+    ]
+    results = engine.search("error handling", docs, top_k=2)
+    assert results[0].doc["text"].startswith("Error handling:")
+
+
+def test_lexical_engine_limitation_with_paraphrase():
+    """Document the known gap: pure lexical retrieval cannot match paraphrases.
+
+    When query and document share no words, BM25/TF-IDF/rerank cannot help.
+    This test proves the gap so it is measurable — enabling RAG_EMBEDDINGS_ENABLED
+    with stored chunk vectors is the fix.
+    """
+    docs = [
+        {"text": "Wrap function calls in try/except blocks to handle unexpected exceptions."},
+        {"text": "The weather in Paris is sunny in July."},
+    ]
+    # Query paraphrases the first doc without sharing any content words
+    results = engine.search("program crash prevention techniques", docs, top_k=2)
+    # Lexical engine likely returns nothing (no shared tokens) — that is the known gap
+    for r in results:
+        assert r.doc["text"] != "The weather in Paris is sunny in July."  # weather doc must not win

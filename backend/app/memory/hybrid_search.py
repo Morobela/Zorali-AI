@@ -1,29 +1,29 @@
 """
-Hybrid retrieval engine — the 2026 production-RAG standard, in pure Python.
+Hybrid retrieval engine — two-stage lexical pipeline with optional dense fusion.
 
-Modern retrieval has moved well past single-signal keyword matching. The
-current best-practice pipeline (and the one implemented here) is two stages:
+Stage 1 (recall):   BM25 + TF-IDF cosine, fused with Reciprocal Rank Fusion.
+                    When the caller supplies pre-computed embedding vectors, dense
+                    cosine similarity is fused in as a third ranker.
+Stage 2 (precision): a LexicalFeatureReranker scores the shortlist on
+                    query-aware signals that per-term statistics miss: exact
+                    phrase hit, IDF-weighted term coverage, and term proximity.
+                    This is a *lexical* approximation of cross-encoder behaviour,
+                    not a trained model; it improves ordering for exact and
+                    near-exact matches but cannot bridge a vocabulary gap.
 
-    1. Broad recall   — score every chunk with several *independent* rankers
-                        (lexical BM25, TF-IDF cosine, and optionally a dense
-                        embedding cosine) and fuse them with Reciprocal Rank
-                        Fusion (RRF). This is "hybrid search".
-    2. Precise rerank — take the fused shortlist and re-score each candidate
-                        with a query-aware "cross-encoder-style" scorer that
-                        looks at the query and chunk *together* (exact phrase
-                        hits, query-term coverage, term proximity). This is the
-                        single biggest quality lever in production RAG.
+Contextual retrieval: each chunk is indexed with a short header (filename +
+document-level keywords) so it stays findable when the query matches the
+document topic rather than the chunk's literal words. Display text (the ``text``
+field) is never mutated — only the ``search_text`` field used for indexing
+includes the header.
 
-On top of that we apply *contextual retrieval*: each chunk is indexed together
-with a short header describing its source document, so a chunk remains findable
-even when the query terms only appear in surrounding document context. This
-mirrors the contextual-retrieval technique that has been shown to cut top-k
-retrieval failures dramatically.
-
-Everything here is dependency-free and deterministic so it behaves identically
-in CI, offline, and in production. Dense embeddings are an *optional* signal:
-when the caller supplies vectors they are fused in as a third ranker; when they
-are absent the engine degrades gracefully to lexical hybrid + rerank.
+Design decisions:
+  - Fully dependency-free and deterministic (no requests, no ML libs).
+  - Dense embeddings are opt-in and failure-safe.
+  - Lexical indexes are cached in-process by corpus fingerprint so they are not
+    rebuilt on every query for the same document set.
+  - Reranking consistently uses ``search_text`` (the same text the recall stage
+    indexed) to avoid penalising chunks matched through their contextual header.
 """
 from __future__ import annotations
 
@@ -33,8 +33,6 @@ from dataclasses import dataclass, field
 from string import punctuation
 from typing import Sequence
 
-# A compact English stop-word list. Kept local so the engine has no internal
-# imports and can be reasoned about in isolation.
 _STOPWORDS = frozenset(
     {
         "a", "an", "the", "and", "or", "but", "if", "is", "are", "was", "were",
@@ -59,12 +57,7 @@ def tokenize(text: str) -> list[str]:
 # ── Stage 1a: BM25 (Okapi) ──────────────────────────────────────────────────
 
 class BM25:
-    """Okapi BM25 — IDF-weighted, length-normalised keyword ranking.
-
-    This is a strict upgrade over raw token-overlap: rare, discriminative terms
-    are weighted far above common ones (IDF), term saturation is handled (k1),
-    and long documents no longer win just by being long (b length-norm).
-    """
+    """Okapi BM25 — IDF-weighted, length-normalised keyword ranking."""
 
     def __init__(self, corpus_tokens: list[list[str]], k1: float = 1.5, b: float = 0.75):
         self.k1 = k1
@@ -83,7 +76,6 @@ class BM25:
             for tok in freqs:
                 df[tok] = df.get(tok, 0) + 1
 
-        # Smoothed IDF that stays non-negative for terms present in every doc.
         self.idf: dict[str, float] = {
             tok: math.log(1 + (self.n_docs - d + 0.5) / (d + 0.5)) for tok, d in df.items()
         }
@@ -112,12 +104,7 @@ class BM25:
 # ── Stage 1b: TF-IDF cosine ─────────────────────────────────────────────────
 
 class TfidfIndex:
-    """Vector-space TF-IDF cosine similarity — an independent lexical signal.
-
-    BM25 and TF-IDF agree often but not always; fusing two correlated-but-
-    distinct rankers is what makes hybrid search robust to the failure modes of
-    either one alone.
-    """
+    """Vector-space TF-IDF cosine similarity — an independent lexical signal."""
 
     def __init__(self, corpus_tokens: list[list[str]]):
         self.n_docs = len(corpus_tokens)
@@ -171,10 +158,19 @@ class TfidfIndex:
 # ── Optional dense signal ───────────────────────────────────────────────────
 
 def cosine_rank(query_vec: Sequence[float], doc_vecs: Sequence[Sequence[float]]) -> list[tuple[int, float]]:
-    """Rank documents by cosine similarity against a query embedding."""
+    """Rank documents by cosine similarity against a query embedding.
+
+    Silently skips documents whose embedding dimension does not match the query
+    rather than truncating with zip(), which would produce nonsense scores.
+    """
+    if not query_vec:
+        return []
+    qdim = len(query_vec)
     qn = math.sqrt(sum(x * x for x in query_vec)) or 1.0
     scored: list[tuple[int, float]] = []
     for i, dv in enumerate(doc_vecs):
+        if len(dv) != qdim:
+            continue  # dimension mismatch — skip rather than truncate
         dot = sum(a * b for a, b in zip(query_vec, dv))
         if dot <= 0:
             continue
@@ -189,12 +185,7 @@ def cosine_rank(query_vec: Sequence[float], doc_vecs: Sequence[Sequence[float]])
 def reciprocal_rank_fusion(
     rankings: list[list[tuple[int, float]]], k: int = 60
 ) -> list[tuple[int, float]]:
-    """Fuse several ranked lists into one.
-
-    RRF combines rankers by *rank position* rather than raw score, so signals on
-    wildly different scales (BM25 points vs. cosine in [0,1]) merge cleanly. A
-    document ranked highly by multiple rankers floats to the top.
-    """
+    """Fuse several ranked lists into one by rank position rather than raw score."""
     fused: dict[int, float] = {}
     for ranking in rankings:
         for position, (idx, _score) in enumerate(ranking):
@@ -202,23 +193,20 @@ def reciprocal_rank_fusion(
     return sorted(fused.items(), key=lambda x: x[1], reverse=True)
 
 
-# ── Stage 2: cross-encoder-style reranker ───────────────────────────────────
+# ── Stage 2: Lexical feature reranker ───────────────────────────────────────
 
-class LexicalReranker:
-    """Query-aware joint scorer approximating a cross-encoder.
+class LexicalFeatureReranker:
+    """Query-aware joint scorer using lexical features.
 
-    The recall rankers score the query and a document independently. A real
-    cross-encoder reads the pair together and is the standard precision stage of
-    production RAG. We approximate that joint view with features that per-term
-    statistics cannot see:
+    This is NOT a cross-encoder (which would run a trained neural model on the
+    query-passage pair). It approximates the joint view with four lexical
+    features: IDF-weighted term coverage, exact phrase match, term proximity,
+    and bigram overlap. These reward chunks where the query terms appear as the
+    actual query, not merely scattered across a long passage.
 
-      • coverage     — fraction of distinct query terms present
-      • exact_phrase — the (normalised) query appears verbatim in the chunk
-      • proximity    — how tightly the query terms cluster together
-      • bigram       — shared adjacent word pairs
-
-    These reward chunks where the query terms actually appear *as the query*,
-    not merely scattered across a long passage.
+    Scoring uses the same ``search_text`` the recall stage indexed over, so
+    chunks retrieved through their contextual header are not penalised by the
+    reranker the way they would be if only ``text`` were scored.
     """
 
     weights = {"coverage": 0.45, "exact_phrase": 0.25, "proximity": 0.20, "bigram": 0.10}
@@ -233,10 +221,8 @@ class LexicalReranker:
         d_set = set(d_tokens)
         present = q_set & d_set
 
-        # Coverage rewards matching the query's *salient* terms. When corpus IDF
-        # is available we weight each term by its rarity, so a chunk that matches
-        # the one discriminative term beats a keyword-stuffed chunk that matches
-        # several common ones — exactly what a cross-encoder learns to do.
+        # IDF-weighted coverage: a chunk that matches the one rare, discriminative
+        # query term ranks higher than a chunk that matches several common ones.
         if idf:
             total_w = sum(idf.get(t, 0.0) for t in q_set)
             coverage = (sum(idf.get(t, 0.0) for t in present) / total_w) if total_w else 0.0
@@ -263,11 +249,6 @@ class LexicalReranker:
 
     @staticmethod
     def _proximity(present: set[str], d_tokens: list[str]) -> float:
-        """Smallest token window covering all present query terms → in (0, 1].
-
-        1.0 means the matched terms are perfectly adjacent; smaller means they
-        are spread out across the chunk.
-        """
         if not present:
             return 0.0
         need = len(present)
@@ -298,6 +279,19 @@ class LexicalReranker:
         return need / best
 
 
+# ── In-process index cache ──────────────────────────────────────────────────
+# Keyed by corpus fingerprint so indexes are not rebuilt on every query for
+# the same document set. Eviction is whole-cache-clear when the limit is hit —
+# simple and correct for a small-scale in-process store.
+
+_INDEX_CACHE: dict[int, tuple[BM25, TfidfIndex]] = {}
+_INDEX_CACHE_MAX = 8
+
+
+def _corpus_fingerprint(corpus_tokens: list[list[str]]) -> int:
+    return hash(tuple(tuple(t) for t in corpus_tokens))
+
+
 # ── Results & engine ────────────────────────────────────────────────────────
 
 @dataclass
@@ -308,7 +302,7 @@ class SearchResult:
 
 
 class HybridSearchEngine:
-    """Two-stage retrieval: hybrid fusion (recall) → reranking (precision)."""
+    """Two-stage retrieval: hybrid fusion (recall) → lexical feature reranking (precision)."""
 
     def __init__(
         self,
@@ -319,7 +313,7 @@ class HybridSearchEngine:
         rerank_weight: float = 0.65,
     ):
         self.rrf_k = rrf_k
-        self.candidate_pool = candidate_pool
+        self.candidate_pool = max(1, candidate_pool)  # guard against zero
         self.rerank = rerank
         self.rerank_weight = rerank_weight
 
@@ -338,13 +332,20 @@ class HybridSearchEngine:
         if not q_tokens:
             return []
 
-        # Index over the *searchable* text (contextualised when available),
-        # but always return the original chunk text for display.
         texts = [d.get("search_text") or d.get("text", "") for d in documents]
         corpus_tokens = [tokenize(t) for t in texts]
 
-        bm25 = BM25(corpus_tokens)
-        tfidf = TfidfIndex(corpus_tokens)
+        # Use cached indexes when the corpus hasn't changed
+        fp = _corpus_fingerprint(corpus_tokens)
+        if fp in _INDEX_CACHE:
+            bm25, tfidf = _INDEX_CACHE[fp]
+        else:
+            bm25 = BM25(corpus_tokens)
+            tfidf = TfidfIndex(corpus_tokens)
+            if len(_INDEX_CACHE) >= _INDEX_CACHE_MAX:
+                _INDEX_CACHE.clear()
+            _INDEX_CACHE[fp] = (bm25, tfidf)
+
         rankings = [bm25.rank(q_tokens), tfidf.rank(q_tokens)]
 
         if embed_query is not None and doc_embeddings is not None and len(doc_embeddings) == len(documents):
@@ -355,6 +356,9 @@ class HybridSearchEngine:
             return []
 
         candidates = fused[: self.candidate_pool]
+        if not candidates:
+            return []
+
         if not self.rerank:
             return [
                 SearchResult(doc=documents[idx], score=round(float(s), 6), components={"fused": s})
@@ -362,10 +366,13 @@ class HybridSearchEngine:
             ]
 
         max_fused = max(s for _, s in candidates) or 1.0
-        reranker = LexicalReranker()
+        reranker = LexicalFeatureReranker()
         rescored: list[tuple[int, float, dict]] = []
         for idx, fused_score in candidates:
-            rer = reranker.score(query, documents[idx].get("text", ""), idf=bm25.idf)
+            # Use search_text (same as recall stage) so context-only matches
+            # are not penalised during reranking.
+            score_text = documents[idx].get("search_text") or documents[idx].get("text", "")
+            rer = reranker.score(query, score_text, idf=bm25.idf)
             fused_norm = fused_score / max_fused
             final = self.rerank_weight * rer + (1 - self.rerank_weight) * fused_norm
             rescored.append(
@@ -393,30 +400,30 @@ def build_chunk_documents(files: list[dict], contextual: bool = True) -> list[di
     """Flatten project files into searchable chunk documents.
 
     With ``contextual=True`` each chunk's *searchable* text is prefixed with a
-    small header — the file name and the document's top keywords — so a chunk
-    stays retrievable even when the query matches the document's overall topic
-    rather than the chunk's literal words. The returned ``text`` field is always
-    the untouched chunk so citations and prompts show the real content.
+    small header (filename + top document keywords) so it stays retrievable when
+    the query matches the document topic rather than the chunk's literal words.
+    The ``text`` field always holds the untouched original for display/citations.
+    Stored per-chunk embeddings (set at upload time) are passed through so the
+    retrieval layer can use them without re-computing.
     """
     documents: list[dict] = []
     for f in files:
         filename = f.get("filename", "")
         doc_keywords = _document_keywords(f.get("extracted_text", "")) if contextual else []
-        header = ""
-        if contextual:
-            header = f"{filename} :: {' '.join(doc_keywords)}".strip()
+        header = f"{filename} :: {' '.join(doc_keywords)}".strip() if contextual else ""
         for c in f.get("chunks", []):
             chunk_text = c.get("text", "")
             search_text = f"{header}\n{chunk_text}" if header else chunk_text
-            documents.append(
-                {
-                    "file_id": f.get("id"),
-                    "filename": filename,
-                    "chunk_id": c.get("id"),
-                    "text": chunk_text,
-                    "search_text": search_text,
-                }
-            )
+            doc: dict = {
+                "file_id": f.get("id"),
+                "filename": filename,
+                "chunk_id": c.get("id"),
+                "text": chunk_text,
+                "search_text": search_text,
+            }
+            if "embedding" in c:
+                doc["embedding"] = c["embedding"]
+            documents.append(doc)
     return documents
 
 
@@ -433,5 +440,5 @@ def _engine_from_settings() -> HybridSearchEngine:
         return HybridSearchEngine()
 
 
-# Shared singleton used across the retrieval paths (chat RAG, memory, agents).
+# Shared singleton used across the retrieval paths.
 engine = _engine_from_settings()
