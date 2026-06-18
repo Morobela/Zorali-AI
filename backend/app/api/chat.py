@@ -8,6 +8,7 @@ from app.db.repositories import repo
 from app.agents.orchestrator import route_agent
 from app.learning.trace_store import trace_store, Trace
 from app.chains.sequential import rag_chain
+from app.memory.retrieval import hybrid_retriever
 
 router = APIRouter()
 
@@ -86,7 +87,7 @@ async def chat_ws(websocket: WebSocket, session_id: str):
 
             resolved_mode = "deep_research" if data.get("deep_research") else mode
             agent_plan = await route_agent(resolved_mode, message, {"project_id": project_id, "attachments": data.get("attachments", [])})
-            retrieved = repo.search_chunks(project_id, message, limit=3)
+            retrieved = await hybrid_retriever.retrieve(message, top_k=3, project_id=project_id)
             repo.add_chat_message(project_id, session_id, "user", message)
             memory = repo.list_chat_messages(project_id, session_id)
             rag_block = "\n\n".join([f"[{c['filename']}#{c['chunk_id']}] {c['text']}" for c in retrieved])

@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -49,6 +50,16 @@ class Settings(BaseSettings):
 
     # Checkpoint persistence (TensorFlow SavedModel-inspired)
     checkpoint_enabled: bool = True
+
+    # Hybrid retrieval (2026 production-RAG: hybrid fusion + reranking + contextual)
+    rag_rerank_enabled: bool = True
+    rag_candidate_pool: int = Field(default=20, ge=1, le=1000)
+    rag_rrf_k: int = Field(default=60, ge=1)
+    rag_rerank_weight: float = Field(default=0.5, ge=0.0, le=2.0)
+    rag_ranker_guarantee: int = Field(default=5, ge=1, le=50)  # top-N per ranker protected from RRF starvation
+    rag_contextual_enabled: bool = True
+    rag_embeddings_enabled: bool = False
+    rag_embedding_model: str = "nomic-embed-text"  # must support search_document/query prefixes
 
     @property
     def postgres_url(self) -> str:
