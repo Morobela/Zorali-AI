@@ -308,6 +308,11 @@ class HybridSearchEngine:
     primary signal. This preserves semantic-only matches: a document that scored well
     via dense embeddings but shares no query words still keeps its fused score intact.
     Formula: ``final = fused_norm × (1 + rerank_weight × lexical_score)``
+
+    ``ranker_guarantee`` protects the top-N results from each individual ranker so they
+    always reach the reranking stage even if RRF fusion would otherwise drop them. This
+    prevents a dense-only result at rank 1 from being evicted by many weak lexical hits
+    that each accumulate two votes (BM25 + TF-IDF) while the semantic match gets only one.
     """
 
     def __init__(
@@ -317,11 +322,13 @@ class HybridSearchEngine:
         candidate_pool: int = 20,
         rerank: bool = True,
         rerank_weight: float = 0.5,
+        ranker_guarantee: int = 5,
     ):
         self.rrf_k = rrf_k
         self.candidate_pool = max(1, candidate_pool)  # guard against zero
         self.rerank = rerank
         self.rerank_weight = rerank_weight
+        self.ranker_guarantee = max(1, ranker_guarantee)
 
     def search(
         self,
@@ -365,7 +372,26 @@ class HybridSearchEngine:
         if not fused:
             return []
 
-        candidates = fused[: self.candidate_pool]
+        fused_map = dict(fused)
+
+        # Primary pool: top candidate_pool documents by RRF score.
+        top_fused_ids = {idx for idx, _ in fused[: self.candidate_pool]}
+
+        # Guaranteed slots: protect the top-ranker_guarantee from every individual
+        # ranker so a dense-only result at rank 1 survives even when 20+ lexical
+        # documents each accumulate two BM25+TF-IDF votes and push it below the
+        # candidate_pool cut-off.
+        protected: set[int] = set()
+        for ranking in rankings:
+            for idx, _ in ranking[: self.ranker_guarantee]:
+                protected.add(idx)
+
+        candidate_ids = top_fused_ids | protected
+        candidates = sorted(
+            ((idx, fused_map[idx]) for idx in candidate_ids),
+            key=lambda x: x[1],
+            reverse=True,
+        )
         if not candidates:
             return []
 
@@ -453,6 +479,7 @@ def _engine_from_settings() -> HybridSearchEngine:
             candidate_pool=settings.rag_candidate_pool,
             rerank=settings.rag_rerank_enabled,
             rerank_weight=settings.rag_rerank_weight,
+            ranker_guarantee=settings.rag_ranker_guarantee,
         )
     except Exception:
         return HybridSearchEngine()

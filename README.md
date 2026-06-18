@@ -6,7 +6,10 @@ Zorali AI is a **local-first assistant MVP** with Claude/ChatGPT-style chat UX, 
 - Zorali branding and UI shell (sidebar/chat/panel composer)
 - WebSocket streaming chat (`/ws/chat/{session_id}`)
 - Project create/list + chat history
-- File upload, chunking, and lightweight token-overlap retrieval with citations
+- File upload, chunking, and two-stage hybrid retrieval with citations:
+  - Stage 1: BM25 + TF-IDF fused via Reciprocal Rank Fusion (in-process index cache)
+  - Stage 2: `LexicalFeatureReranker` (IDF-weighted coverage, exact phrase, proximity, bigrams)
+  - Optional: dense semantic search via Ollama (`RAG_EMBEDDINGS_ENABLED=true`, Nomic task prefixes)
 - Task mode commands (`/status`, `/files`, `/search`, `/read`, `/artifact ...`, `/help`)
 - Artifact create/list/read/update with versions
 - JSON persistence via `ZORALI_DATA_DIR` (defaults to `/data`)
@@ -14,7 +17,7 @@ Zorali AI is a **local-first assistant MVP** with Claude/ChatGPT-style chat UX, 
 
 ## Not yet built
 - Full autonomous tool execution
-- Advanced embeddings/vector DB
+- Dedicated vector store (embeddings currently live in the JSON store — see Roadmap)
 - Multi-user RBAC hardening
 - Native PDF parsing
 
@@ -91,10 +94,13 @@ npm run dev
 - Voice and Image are placeholders
 - PDF extraction is basic and should be upgraded with pypdf
 - Persistence is JSON-based, not Postgres-backed yet
-- Memory search is currently keyword-overlap based; semantic vector memory is not implemented yet.
+- Memory search uses hybrid BM25/TF-IDF lexical retrieval with feature reranking. For semantic paraphrase recall (queries that share no words with stored memories), enable `RAG_EMBEDDINGS_ENABLED=true` with an Ollama embedding model.
+- Embeddings are stored inside `store.json`; for large corpora move to pgvector/FAISS/Qdrant.
+- File indexing blocks the upload HTTP response; large files may time out.
 
 ## Roadmap
-1. Add optional embedding retrieval mode.
-2. Add artifact side-panel editing UX.
-3. Add auth/RBAC hardening and audit logging.
-4. Add richer CI and e2e tests.
+1. Move embeddings to a dedicated vector store (pgvector, FAISS, or Qdrant).
+2. Non-blocking background indexing with status field and retry support.
+3. Add artifact side-panel editing UX.
+4. Add auth/RBAC hardening and audit logging.
+5. Add richer CI and e2e tests including retrieval quality metrics (Recall@5, MRR).

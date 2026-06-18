@@ -391,3 +391,190 @@ def test_lexical_engine_limitation_with_paraphrase():
     # Lexical engine likely returns nothing (no shared tokens) — that is the known gap
     for r in results:
         assert r.doc["text"] != "The weather in Paris is sunny in July."  # weather doc must not win
+
+
+# ── Dense candidate starvation guard ────────────────────────────────────────
+
+def test_dense_top_result_survives_many_lexical_distractors():
+    """Dense-ranked #1 must not be cut off at the candidate pool boundary.
+
+    Without ranker_guarantee, BM25+TF-IDF give each of 25 lexical docs two RRF votes
+    while the semantic-only doc gets one. All 20 candidate_pool slots go to lexical
+    docs so the semantic answer is discarded before reranking. ranker_guarantee=5
+    protects the top-5 from every individual ranker including dense, so the semantic
+    doc survives into the reranked result set even with 25 stronger lexical distractors.
+
+    We use top_k=len(all_docs) to check the candidate pool, not the final ranking:
+    the semantic doc will naturally rank below the lexical matches (it shares no
+    query words), but it must not be silently excluded before reranking runs.
+    """
+    # 25 docs all sharing query terms — they dominate BM25 and TF-IDF
+    distractors = [
+        {"text": f"python error handling try except block example number {i}"}
+        for i in range(25)
+    ]
+    # Semantic-only doc: zero shared words with "python error handling"
+    semantic_doc = {"text": "reptilian scripts implemented demonstrate catastrophic failure modes"}
+    all_docs = distractors + [semantic_doc]
+    semantic_idx = len(all_docs) - 1
+
+    eng = HybridSearchEngine(
+        rerank=True,
+        rerank_weight=0.5,
+        candidate_pool=20,
+        ranker_guarantee=5,
+        rrf_k=60,
+    )
+    # Simulate dense ranking: semantic doc is the best semantic match
+    dense_ranking = [(semantic_idx, 1.0)] + [(i, 1.0 / (i + 2)) for i in range(5)]
+
+    # top_k = total docs so we can verify the semantic doc appears somewhere in the pool
+    results = eng.search(
+        "python error handling", all_docs,
+        top_k=len(all_docs),
+        extra_rankings=[dense_ranking],
+    )
+    result_texts = [r.doc["text"] for r in results]
+    assert any("reptilian" in t for t in result_texts), (
+        "Dense top-1 must survive into the candidate pool with 25 lexical distractors "
+        "when ranker_guarantee >= 1"
+    )
+
+
+def test_ranker_guarantee_not_needed_without_dense():
+    """When there is no extra_rankings, ranker_guarantee should not affect results."""
+    docs = [
+        {"text": "alpha beta gamma delta epsilon"},
+        {"text": "zeta eta theta iota kappa"},
+    ]
+    eng_with = HybridSearchEngine(ranker_guarantee=10, candidate_pool=5)
+    eng_without = HybridSearchEngine(ranker_guarantee=1, candidate_pool=5)
+    r_with = eng_with.search("alpha beta", docs)
+    r_without = eng_without.search("alpha beta", docs)
+    # Without dense signal, both engines should agree on the lexical winner
+    assert r_with[0].doc["text"] == r_without[0].doc["text"]
+
+
+# ── Embed texts: prefix and batching (mocked Ollama) ────────────────────────
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_uses_nomic_document_prefix():
+    """Documents must be sent with 'search_document: ' prefix to Ollama."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from app.memory.embeddings import embed_texts
+
+    captured: list[dict] = []
+
+    async def fake_post(url, *, json=None, **_kwargs):
+        captured.append(json or {})
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        n = len((json or {}).get("input", []))
+        resp.json.return_value = {"embeddings": [[0.1, 0.2]] * n}
+        return resp
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = fake_post
+
+    with patch("app.memory.embeddings.settings") as s, \
+            patch("httpx.AsyncClient", return_value=mock_client):
+        s.rag_embeddings_enabled = True
+        s.ollama_host = "http://localhost:11434"
+        s.rag_embedding_model = "nomic-embed-text"
+        s.provider_timeout_seconds = 30.0
+
+        result = await embed_texts(["hello world"], task="document")
+
+    assert result is not None
+    assert captured, "expected at least one HTTP POST"
+    assert captured[0]["input"][0] == "search_document: hello world"
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_uses_nomic_query_prefix():
+    """Queries must be sent with 'search_query: ' prefix to Ollama."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from app.memory.embeddings import embed_texts
+
+    captured: list[dict] = []
+
+    async def fake_post(url, *, json=None, **_kwargs):
+        captured.append(json or {})
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        n = len((json or {}).get("input", []))
+        resp.json.return_value = {"embeddings": [[0.1, 0.2]] * n}
+        return resp
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = fake_post
+
+    with patch("app.memory.embeddings.settings") as s, \
+            patch("httpx.AsyncClient", return_value=mock_client):
+        s.rag_embeddings_enabled = True
+        s.ollama_host = "http://localhost:11434"
+        s.rag_embedding_model = "nomic-embed-text"
+        s.provider_timeout_seconds = 30.0
+
+        result = await embed_texts(["find relevant documents"], task="query")
+
+    assert result is not None
+    assert captured[0]["input"][0] == "search_query: find relevant documents"
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_splits_into_batches_of_32():
+    """More than 32 texts must be split into multiple Ollama requests."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from app.memory.embeddings import embed_texts, EMBED_BATCH_SIZE
+
+    call_count = 0
+
+    async def fake_post(url, *, json=None, **_kwargs):
+        nonlocal call_count
+        call_count += 1
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        n = len((json or {}).get("input", []))
+        resp.json.return_value = {"embeddings": [[0.0]] * n}
+        return resp
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = fake_post
+
+    texts = [f"chunk {i}" for i in range(EMBED_BATCH_SIZE + 1)]  # 33 texts → 2 batches
+
+    with patch("app.memory.embeddings.settings") as s, \
+            patch("httpx.AsyncClient", return_value=mock_client):
+        s.rag_embeddings_enabled = True
+        s.ollama_host = "http://localhost:11434"
+        s.rag_embedding_model = "nomic-embed-text"
+        s.provider_timeout_seconds = 30.0
+
+        result = await embed_texts(texts, task="document")
+
+    assert result is not None
+    assert len(result) == len(texts)
+    assert call_count == 2, f"expected 2 batch calls, got {call_count}"
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_returns_none_when_disabled():
+    """embed_texts must return None immediately when rag_embeddings_enabled is False."""
+    from unittest.mock import patch
+    from app.memory.embeddings import embed_texts
+
+    with patch("app.memory.embeddings.settings") as s:
+        s.rag_embeddings_enabled = False
+        result = await embed_texts(["some text"])
+
+    assert result is None

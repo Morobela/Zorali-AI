@@ -89,9 +89,12 @@ async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
         try:
             from app.memory.embeddings import embed_texts
             from app.memory.hybrid_search import _document_keywords
-            doc_keywords = _document_keywords(text)
-            header = f"{safe_name} :: {' '.join(doc_keywords)}"
-            search_texts = [f"{header}\n{c['text']}" for c in chunks]
+            if settings.rag_contextual_enabled:
+                doc_keywords = _document_keywords(text)
+                header = f"{safe_name} :: {' '.join(doc_keywords)}"
+                search_texts = [f"{header}\n{c['text']}" for c in chunks]
+            else:
+                search_texts = [c['text'] for c in chunks]
             vectors = await embed_texts(search_texts, task="document")
             if vectors and len(vectors) == len(chunks):
                 for chunk, vec in zip(chunks, vectors):
