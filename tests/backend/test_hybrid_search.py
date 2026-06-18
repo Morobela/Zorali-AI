@@ -206,6 +206,37 @@ def test_engine_guards_zero_candidate_pool():
     eng.search("alpha", docs, top_k=1)
 
 
+def test_engine_extra_rankings_fused_via_rrf():
+    """A pre-computed dense ranking passed as extra_rankings must be merged by RRF."""
+    docs = [
+        {"text": "cooking pasta recipes for beginners"},
+        {"text": "machine learning optimization techniques"},
+    ]
+    # Simulate dense ranking that strongly prefers doc 1
+    dense_ranking = [(1, 0.95), (0, 0.1)]
+    results = engine.search("machine learning", docs, top_k=2, extra_rankings=[dense_ranking])
+    assert results and results[0].doc["text"].startswith("machine")
+
+
+def test_reranker_boost_preserves_semantic_only_match():
+    """Semantic-only candidates (lexical=0) must not be crushed below their fused score."""
+    # This tests the multiplicative-boost formula: final = fused × (1 + weight × lex)
+    # A doc with fused=1.0 and lex=0 gets final=1.0 — it keeps its full fused score.
+    eng = HybridSearchEngine(rerank=True, rerank_weight=0.5, candidate_pool=5)
+    # Doc 0: shares query words (lexical hit) but conceptually unrelated
+    # Doc 1: shares NO words with query but is in candidates via extra_rankings (simulating dense)
+    docs = [
+        {"text": "query alpha beta gamma tokens appear here"},
+        {"text": "completely unrelated vocabulary zebra xylophone"},
+    ]
+    # Pre-inject doc 1 at top of dense ranking (simulates perfect semantic match)
+    dense_ranking = [(1, 1.0), (0, 0.1)]
+    results = eng.search("query alpha", docs, top_k=2, extra_rankings=[dense_ranking])
+    # Doc 1 should appear in results (semantic match not crushed)
+    result_texts = [r.doc["text"] for r in results]
+    assert any("zebra" in t for t in result_texts), "Semantic-only match must survive reranking"
+
+
 # ── Index cache ─────────────────────────────────────────────────────────────
 
 def test_index_cache_populated_on_first_search():
@@ -275,6 +306,16 @@ def test_build_chunk_documents_no_embedding_key_when_absent():
     ]
     docs = build_chunk_documents(files)
     assert "embedding" not in docs[0]
+
+
+def test_build_chunk_documents_passes_embedding_model_metadata():
+    """embedding_model metadata must flow through so retrieval can skip stale vectors."""
+    files = [
+        {"id": "f1", "filename": "a.md", "extracted_text": "hello",
+         "chunks": [{"id": 0, "text": "body", "embedding": [0.1], "embedding_model": "nomic-embed-text"}]}
+    ]
+    docs = build_chunk_documents(files)
+    assert docs[0].get("embedding_model") == "nomic-embed-text"
 
 
 # ── Integration: repo.search_chunks contract ────────────────────────────────

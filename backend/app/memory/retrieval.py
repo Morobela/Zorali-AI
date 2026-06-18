@@ -1,17 +1,23 @@
 """
 Async retrieval entry point with optional dense embeddings.
 
-``HybridRetriever.retrieve()`` is the canonical retrieval path for async
-callers (chat WebSocket, RAG chain, file-analysis agent).
+``HybridRetriever.retrieve()`` is the canonical retrieval path for every async
+caller: chat WebSocket, sequential RAG chain, /api/files/search, and the
+file-analysis agent.
 
-Embedding strategy:
-  - Document embeddings are generated at file-upload time and stored in the
-    chunk records. This means at query time only the query itself needs to be
-    embedded — one request instead of N (one per chunk).
-  - If stored embeddings are missing (e.g. files uploaded before the feature
-    was enabled), the engine falls back to lexical hybrid + rerank without
-    crashing.
-  - All embedding failures are logged as warnings rather than raised.
+Dense embedding strategy:
+  - Embeddings are generated at file-upload time (task="document") and stored
+    per-chunk in the file record. Only the query needs to be embedded at search
+    time (task="query"), using the same Nomic task-instruction prefix.
+  - Dense retrieval is *partial*: chunks without stored embeddings (e.g. files
+    uploaded before the feature was enabled) are still retrieved via the lexical
+    pipeline and participate in RRF fusion. Only the subset with stored embeddings
+    contributes a dense ranking. This avoids the "one old file disables everything"
+    failure mode.
+  - Stored embeddings that were generated with a different model than the current
+    ``RAG_EMBEDDING_MODEL`` are silently skipped to prevent cross-space comparisons.
+  - All failures are logged as warnings; the engine degrades gracefully to
+    lexical hybrid + reranking.
 """
 from __future__ import annotations
 
@@ -21,7 +27,7 @@ import logging
 # before any test-level module reloads (e.g. importlib.reload(repositories))
 # can replace the module-level singletons with temporary instances.
 from app.db.repositories import repo
-from app.memory.hybrid_search import engine, build_chunk_documents
+from app.memory.hybrid_search import engine, build_chunk_documents, cosine_rank
 from app.core.config import settings
 
 _log = logging.getLogger(__name__)
@@ -37,33 +43,39 @@ class HybridRetriever:
         if not documents:
             return []
 
-        embed_query = None
-        doc_embeddings = None
+        dense_ranking: list[tuple[int, float]] | None = None
 
         if settings.rag_embeddings_enabled:
-            # Use pre-computed per-chunk embeddings stored at upload time.
-            stored = [d.get("embedding") for d in documents]
-            if all(v is not None for v in stored):
-                doc_embeddings = stored
+            current_model = settings.rag_embedding_model
+            # Collect (original_index, vector) for chunks with matching-model embeddings.
+            indexed: list[tuple[int, list[float]]] = [
+                (i, d["embedding"])
+                for i, d in enumerate(documents)
+                if d.get("embedding") is not None
+                and d.get("embedding_model") == current_model
+            ]
+            if indexed:
                 try:
-                    from app.memory.embeddings import embed_texts  # optional dep, lazy ok
-                    q_vecs = await embed_texts([query])
-                    embed_query = q_vecs[0] if q_vecs else None
+                    from app.memory.embeddings import embed_texts
+                    q_vecs = await embed_texts([query], task="query")
+                    if q_vecs:
+                        orig_indices, sub_vecs = zip(*indexed)
+                        sub_rankings = cosine_rank(q_vecs[0], list(sub_vecs))
+                        # Remap sub-corpus indices back to original document indices.
+                        dense_ranking = [(orig_indices[si], score) for si, score in sub_rankings]
                 except Exception as exc:
-                    _log.warning("Query embedding failed: %s", exc)
-                    embed_query = None
-            else:
-                # Stored embeddings absent — log once and degrade gracefully.
+                    _log.warning("Dense query embedding failed: %s", exc)
+            elif documents:
                 _log.debug(
-                    "No stored embeddings for project %r; "
-                    "dense signal disabled. Upload files with RAG_EMBEDDINGS_ENABLED=true "
+                    "No stored embeddings (model=%r) for project %r; "
+                    "dense signal skipped. Re-upload files with RAG_EMBEDDINGS_ENABLED=true "
                     "to enable semantic retrieval.",
-                    project_id,
+                    current_model, project_id,
                 )
 
         results = engine.search(
             query, documents, top_k=top_k,
-            embed_query=embed_query, doc_embeddings=doc_embeddings,
+            extra_rankings=[dense_ranking] if dense_ranking else None,
         )
         return [
             {

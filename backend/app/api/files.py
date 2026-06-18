@@ -16,7 +16,6 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 def extract_text(filename: str, content: bytes) -> str:
     lower = filename.lower()
     if lower.endswith('.pdf'):
-        # Basic PDF text extraction: strip binary, grab printable ASCII
         try:
             raw_str = content.decode('latin-1', errors='replace')
             import re
@@ -42,12 +41,31 @@ def chunk_text(text: str, size: int = 700, overlap: int = 100):
         end = min(len(text), start + size)
         chunks.append({'id': idx, 'text': text[start:end]})
         idx += 1
-        # BUG FIX: was `max(end - overlap, end)` which always == end (no overlap)
         next_start = end - overlap
         if next_start <= start:
-            next_start = end  # safety guard against infinite loop on tiny texts
+            next_start = end
         start = next_start
     return chunks
+
+
+def _public_file(record: dict) -> dict:
+    """Strip internal-only fields from a file record before returning to API callers.
+
+    Embeddings are large float arrays that belong in the retrieval layer; they
+    must never appear in API responses. Internal file-system paths are also
+    excluded for security.
+    """
+    public_chunks = [
+        {"id": c["id"], "text": c["text"]}
+        for c in record.get("chunks", [])
+    ]
+    return {
+        "id": record["id"],
+        "project_id": record["project_id"],
+        "filename": record["filename"],
+        "chunks": public_chunks,
+        "created_at": record.get("created_at"),
+    }
 
 
 @router.post('/upload')
@@ -63,8 +81,10 @@ async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
     text = extract_text(safe_name, raw)
     chunks = chunk_text(text)
 
-    # Pre-compute and store per-chunk embeddings so queries only need to embed
-    # themselves rather than re-embedding the entire document set every time.
+    # Pre-compute and store per-chunk embeddings at upload time.
+    # Uses the Nomic "search_document:" task prefix so the vectors are in the
+    # correct space for asymmetric retrieval. Model name is stored alongside
+    # each vector so stale embeddings from a different model can be detected.
     if settings.rag_embeddings_enabled:
         try:
             from app.memory.embeddings import embed_texts
@@ -72,34 +92,39 @@ async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
             doc_keywords = _document_keywords(text)
             header = f"{safe_name} :: {' '.join(doc_keywords)}"
             search_texts = [f"{header}\n{c['text']}" for c in chunks]
-            vectors = await embed_texts(search_texts)
+            vectors = await embed_texts(search_texts, task="document")
             if vectors and len(vectors) == len(chunks):
                 for chunk, vec in zip(chunks, vectors):
                     chunk["embedding"] = vec
+                    chunk["embedding_model"] = settings.rag_embedding_model
         except Exception as exc:
             _log.warning("Embedding generation skipped at upload: %s", exc)
 
     try:
-        return repo.save_file(project_id=project_id, filename=safe_name, content=raw, extracted_text=text, chunks=chunks)
+        record = repo.save_file(
+            project_id=project_id, filename=safe_name, content=raw,
+            extracted_text=text, chunks=chunks,
+        )
+        return _public_file(record)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get('/search')
 async def search(project_id: str = Query(...), q: str = Query(...), limit: int = 5):
-    return repo.search_chunks(project_id, q, limit)
+    """Search file chunks via the hybrid retrieval engine (uses dense embeddings when available)."""
+    from app.memory.retrieval import hybrid_retriever
+    return await hybrid_retriever.retrieve(q, top_k=limit, project_id=project_id)
 
 
 @router.get('/list')
 async def list_files(project_id: str = Query(...)):
-    return repo.list_files(project_id)
+    return [_public_file(f) for f in repo.list_files(project_id)]
 
 
 @router.delete('/{file_id}')
 async def delete_file(file_id: str):
-    """Remove a file record and its stored bytes."""
     deleted = repo.delete_file(file_id)
     if not deleted:
         raise HTTPException(status_code=404, detail='File not found')
     return {'deleted': file_id}
-

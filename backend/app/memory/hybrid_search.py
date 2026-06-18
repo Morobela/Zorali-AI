@@ -302,7 +302,13 @@ class SearchResult:
 
 
 class HybridSearchEngine:
-    """Two-stage retrieval: hybrid fusion (recall) → lexical feature reranking (precision)."""
+    """Two-stage retrieval: hybrid fusion (recall) → lexical feature reranking (precision).
+
+    The reranker is applied as a *multiplicative boost* on the fused score, not as a
+    primary signal. This preserves semantic-only matches: a document that scored well
+    via dense embeddings but shares no query words still keeps its fused score intact.
+    Formula: ``final = fused_norm × (1 + rerank_weight × lexical_score)``
+    """
 
     def __init__(
         self,
@@ -310,7 +316,7 @@ class HybridSearchEngine:
         rrf_k: int = 60,
         candidate_pool: int = 20,
         rerank: bool = True,
-        rerank_weight: float = 0.65,
+        rerank_weight: float = 0.5,
     ):
         self.rrf_k = rrf_k
         self.candidate_pool = max(1, candidate_pool)  # guard against zero
@@ -325,6 +331,7 @@ class HybridSearchEngine:
         *,
         embed_query: Sequence[float] | None = None,
         doc_embeddings: Sequence[Sequence[float]] | None = None,
+        extra_rankings: list[list[tuple[int, float]]] | None = None,
     ) -> list[SearchResult]:
         if not query or not query.strip() or not documents:
             return []
@@ -351,6 +358,9 @@ class HybridSearchEngine:
         if embed_query is not None and doc_embeddings is not None and len(doc_embeddings) == len(documents):
             rankings.append(cosine_rank(embed_query, doc_embeddings))
 
+        if extra_rankings:
+            rankings.extend(r for r in extra_rankings if r)
+
         fused = reciprocal_rank_fusion(rankings, k=self.rrf_k)
         if not fused:
             return []
@@ -374,7 +384,10 @@ class HybridSearchEngine:
             score_text = documents[idx].get("search_text") or documents[idx].get("text", "")
             rer = reranker.score(query, score_text, idf=bm25.idf)
             fused_norm = fused_score / max_fused
-            final = self.rerank_weight * rer + (1 - self.rerank_weight) * fused_norm
+            # Lexical features are a multiplicative boost, not a primary signal.
+            # A semantic-only match (rer=0) retains its full fused_norm score;
+            # exact-phrase and proximity hits get up to a (1 + rerank_weight) multiplier.
+            final = fused_norm * (1.0 + self.rerank_weight * rer)
             rescored.append(
                 (idx, final, {"rerank": round(rer, 6), "fused": round(fused_score, 6)})
             )
@@ -423,6 +436,10 @@ def build_chunk_documents(files: list[dict], contextual: bool = True) -> list[di
             }
             if "embedding" in c:
                 doc["embedding"] = c["embedding"]
+            # Pass model metadata through so retrieval.py can filter stale
+            # embeddings from a different or previous model.
+            if "embedding_model" in c:
+                doc["embedding_model"] = c["embedding_model"]
             documents.append(doc)
     return documents
 
@@ -435,6 +452,7 @@ def _engine_from_settings() -> HybridSearchEngine:
             rrf_k=settings.rag_rrf_k,
             candidate_pool=settings.rag_candidate_pool,
             rerank=settings.rag_rerank_enabled,
+            rerank_weight=settings.rag_rerank_weight,
         )
     except Exception:
         return HybridSearchEngine()

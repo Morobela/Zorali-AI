@@ -51,12 +51,13 @@ class Settings(BaseSettings):
     checkpoint_enabled: bool = True
 
     # Hybrid retrieval (2026 production-RAG: hybrid fusion + reranking + contextual)
-    rag_rerank_enabled: bool = True        # stage-2 cross-encoder-style rerank
+    rag_rerank_enabled: bool = True        # stage-2 lexical feature rerank
     rag_candidate_pool: int = 20           # shortlist size before reranking
     rag_rrf_k: int = 60                    # Reciprocal Rank Fusion constant
-    rag_contextual_enabled: bool = True    # prepend document context to chunks
+    rag_rerank_weight: float = 0.5         # lexical boost multiplier (fused × (1 + w×lex))
+    rag_contextual_enabled: bool = True    # prepend document header to chunks
     rag_embeddings_enabled: bool = False   # opt-in dense signal via Ollama
-    rag_embedding_model: str = "nomic-embed-text"
+    rag_embedding_model: str = "nomic-embed-text"  # must support search_document/query prefixes
 
     @property
     def postgres_url(self) -> str:
