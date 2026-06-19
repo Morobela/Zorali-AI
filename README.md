@@ -94,7 +94,7 @@ npm run dev
 - Voice and Image are placeholders
 - PDF extraction is basic and should be upgraded with pypdf
 - Persistence is JSON-based, not Postgres-backed yet
-- Memory search uses hybrid BM25/TF-IDF lexical retrieval with feature reranking. For semantic paraphrase recall (queries that share no words with stored memories), enable `RAG_EMBEDDINGS_ENABLED=true` with an Ollama embedding model.
+- Memory search uses hybrid BM25/TF-IDF lexical retrieval with feature reranking. `RAG_EMBEDDINGS_ENABLED=true` enables dense search for uploaded file chunks only — memories do not yet have embedding generation or storage.
 - Embeddings are stored inside `store.json`; for large corpora move to pgvector/FAISS/Qdrant.
 - File indexing blocks the upload HTTP response; large files may time out.
 
