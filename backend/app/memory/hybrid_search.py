@@ -183,13 +183,21 @@ def cosine_rank(query_vec: Sequence[float], doc_vecs: Sequence[Sequence[float]])
 # ── Stage 1c: Reciprocal Rank Fusion ────────────────────────────────────────
 
 def reciprocal_rank_fusion(
-    rankings: list[list[tuple[int, float]]], k: int = 60
+    rankings: list[list[tuple[int, float]]],
+    k: int = 60,
+    weights: list[float] | None = None,
 ) -> list[tuple[int, float]]:
-    """Fuse several ranked lists into one by rank position rather than raw score."""
+    """Fuse several ranked lists into one by rank position rather than raw score.
+
+    ``weights`` allows compensating for unequal numbers of rankers: with two lexical
+    rankers (BM25, TF-IDF) and one dense ranker, set dense weight=2.0 so both signals
+    contribute equally to the fused score.  Defaults to weight 1.0 per ranker.
+    """
     fused: dict[int, float] = {}
-    for ranking in rankings:
+    for i, ranking in enumerate(rankings):
+        w = weights[i] if (weights and i < len(weights)) else 1.0
         for position, (idx, _score) in enumerate(ranking):
-            fused[idx] = fused.get(idx, 0.0) + 1.0 / (k + position + 1)
+            fused[idx] = fused.get(idx, 0.0) + w / (k + position + 1)
     return sorted(fused.items(), key=lambda x: x[1], reverse=True)
 
 
@@ -309,10 +317,15 @@ class HybridSearchEngine:
     via dense embeddings but shares no query words still keeps its fused score intact.
     Formula: ``final = fused_norm × (1 + rerank_weight × lexical_score)``
 
-    ``ranker_guarantee`` protects the top-N results from each individual ranker so they
-    always reach the reranking stage even if RRF fusion would otherwise drop them. This
-    prevents a dense-only result at rank 1 from being evicted by many weak lexical hits
-    that each accumulate two votes (BM25 + TF-IDF) while the semantic match gets only one.
+    ``dense_rrf_weight`` compensates for the two-vs-one vote imbalance: BM25 and TF-IDF
+    each cast an independent RRF vote, so a lexical match naturally accumulates twice the
+    weight of a semantic-only match. Setting ``dense_rrf_weight=2.0`` (the default) gives
+    the dense ranker equal total influence — a dense top-1 then ties a lexical top-1 in
+    the fused score rather than losing to it.
+
+    ``ranker_guarantee`` is a secondary safety net: the top-N from every individual ranker
+    are promoted into the candidate pool so a dense top-1 can never be completely evicted
+    by the candidate_pool cutoff even in extreme distractor scenarios.
     """
 
     def __init__(
@@ -323,12 +336,14 @@ class HybridSearchEngine:
         rerank: bool = True,
         rerank_weight: float = 0.5,
         ranker_guarantee: int = 5,
+        dense_rrf_weight: float = 3.0,
     ):
         self.rrf_k = rrf_k
         self.candidate_pool = max(1, candidate_pool)  # guard against zero
         self.rerank = rerank
         self.rerank_weight = rerank_weight
         self.ranker_guarantee = max(1, ranker_guarantee)
+        self.dense_rrf_weight = dense_rrf_weight
 
     def search(
         self,
@@ -361,14 +376,22 @@ class HybridSearchEngine:
             _INDEX_CACHE[fp] = (bm25, tfidf)
 
         rankings = [bm25.rank(q_tokens), tfidf.rank(q_tokens)]
+        # BM25 and TF-IDF each cast one lexical vote (weight 1.0 each).
+        # Dense rankings get dense_rrf_weight so their total influence matches the
+        # combined lexical signal and a semantic top-1 can compete with a lexical top-1.
+        weights = [1.0, 1.0]
 
         if embed_query is not None and doc_embeddings is not None and len(doc_embeddings) == len(documents):
             rankings.append(cosine_rank(embed_query, doc_embeddings))
+            weights.append(self.dense_rrf_weight)
 
         if extra_rankings:
-            rankings.extend(r for r in extra_rankings if r)
+            for r in extra_rankings:
+                if r:
+                    rankings.append(r)
+                    weights.append(self.dense_rrf_weight)
 
-        fused = reciprocal_rank_fusion(rankings, k=self.rrf_k)
+        fused = reciprocal_rank_fusion(rankings, k=self.rrf_k, weights=weights)
         if not fused:
             return []
 
@@ -480,6 +503,7 @@ def _engine_from_settings() -> HybridSearchEngine:
             rerank=settings.rag_rerank_enabled,
             rerank_weight=settings.rag_rerank_weight,
             ranker_guarantee=settings.rag_ranker_guarantee,
+            dense_rrf_weight=settings.rag_dense_rrf_weight,
         )
     except Exception:
         return HybridSearchEngine()

@@ -56,7 +56,8 @@ class Settings(BaseSettings):
     rag_candidate_pool: int = Field(default=20, ge=1, le=1000)
     rag_rrf_k: int = Field(default=60, ge=1)
     rag_rerank_weight: float = Field(default=0.5, ge=0.0, le=2.0)
-    rag_ranker_guarantee: int = Field(default=5, ge=1, le=50)  # top-N per ranker protected from RRF starvation
+    rag_ranker_guarantee: int = Field(default=5, ge=1, le=50)  # top-N per ranker always reach reranking
+    rag_dense_rrf_weight: float = Field(default=3.0, ge=0.1, le=10.0)  # dense ranker weight vs 1.0 per lexical
     rag_contextual_enabled: bool = True
     rag_embeddings_enabled: bool = False
     rag_embedding_model: str = "nomic-embed-text"  # must support search_document/query prefixes

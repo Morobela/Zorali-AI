@@ -395,25 +395,32 @@ def test_lexical_engine_limitation_with_paraphrase():
 
 # ── Dense candidate starvation guard ────────────────────────────────────────
 
-def test_dense_top_result_survives_many_lexical_distractors():
-    """Dense-ranked #1 must not be cut off at the candidate pool boundary.
+def test_dense_top_result_reaches_actual_top_k():
+    """Dense top-1 with no lexical overlap must appear in the real top_k=5 results.
 
-    Without ranker_guarantee, BM25+TF-IDF give each of 25 lexical docs two RRF votes
-    while the semantic-only doc gets one. All 20 candidate_pool slots go to lexical
-    docs so the semantic answer is discarded before reranking. ranker_guarantee=5
-    protects the top-5 from every individual ranker including dense, so the semantic
-    doc survives into the reranked result set even with 25 stronger lexical distractors.
+    This is the core regression test for weighted RRF.
 
-    We use top_k=len(all_docs) to check the candidate pool, not the final ranking:
-    the semantic doc will naturally rank below the lexical matches (it shares no
-    query words), but it must not be silently excluded before reranking runs.
+    The lexical reranker can boost any doc by at most (1 + rerank_weight) = 1.5x.
+    For the dense top-1 to reliably beat that:
+        dense_rrf_fused_norm > lexical_top1_fused_norm × 1.5
+        W / W  >  (2 / W) × 1.5
+        1.0    >  3.0 / W
+        W      > 3.0
+
+    With dense_rrf_weight=3.0 (the default), a dense top-1 beats any lexical doc
+    whose lex_score < 1.0, and ties (winning on tiebreak) with perfect lex_score=1.0.
+    This covers the real Zorali use case: top_k=3 in chat, top_k=5 in file analysis.
+
+    Distractors here have PARTIAL lexical overlap (only 1 of 3 query tokens) so
+    their lex_score stays well below 1.0 and the semantic doc ranks first.
     """
-    # 25 docs all sharing query terms — they dominate BM25 and TF-IDF
+    # Distractors share only ONE query token ("error") — not the full phrase.
+    # This gives them a small but non-zero lexical score (partial match, no exact phrase).
     distractors = [
-        {"text": f"python error handling try except block example number {i}"}
+        {"text": f"general debugging approach for runtime error cases study {i}"}
         for i in range(25)
     ]
-    # Semantic-only doc: zero shared words with "python error handling"
+    # Semantic-only doc: zero tokens shared with "python error handling"
     semantic_doc = {"text": "reptilian scripts implemented demonstrate catastrophic failure modes"}
     all_docs = distractors + [semantic_doc]
     semantic_idx = len(all_docs) - 1
@@ -424,20 +431,47 @@ def test_dense_top_result_survives_many_lexical_distractors():
         candidate_pool=20,
         ranker_guarantee=5,
         rrf_k=60,
+        dense_rrf_weight=3.0,
     )
-    # Simulate dense ranking: semantic doc is the best semantic match
+    # Dense-only: semantic doc is the best semantic match (no lexical overlap with query)
+    dense_ranking = [(semantic_idx, 1.0)]
+
+    results = eng.search("python error handling", all_docs, top_k=5, extra_rankings=[dense_ranking])
+    result_texts = [r.doc["text"] for r in results]
+    assert any("reptilian" in t for t in result_texts), (
+        "Dense top-1 must reach top_k=5 with dense_rrf_weight=3.0 "
+        "(W > 2 × max_lexical_boost ensures semantic beats partial-match lexical docs)"
+    )
+
+
+def test_dense_top_result_survives_candidate_pool_without_weight():
+    """ranker_guarantee ensures the dense top-1 is not cut off from the candidate pool.
+
+    Even without dense_rrf_weight boosting the final rank, the protected doc must at
+    least appear somewhere in the result set. This test uses top_k=all to verify pool
+    survival independently of final ranking.
+    """
+    distractors = [
+        {"text": f"python error handling try except block example number {i}"}
+        for i in range(25)
+    ]
+    semantic_doc = {"text": "reptilian scripts implemented demonstrate catastrophic failure modes"}
+    all_docs = distractors + [semantic_doc]
+    semantic_idx = len(all_docs) - 1
+
+    eng = HybridSearchEngine(
+        rerank=True, rerank_weight=0.5, candidate_pool=20,
+        ranker_guarantee=5, rrf_k=60, dense_rrf_weight=1.0,  # no weight boost
+    )
     dense_ranking = [(semantic_idx, 1.0)] + [(i, 1.0 / (i + 2)) for i in range(5)]
 
-    # top_k = total docs so we can verify the semantic doc appears somewhere in the pool
     results = eng.search(
-        "python error handling", all_docs,
-        top_k=len(all_docs),
+        "python error handling", all_docs, top_k=len(all_docs),
         extra_rankings=[dense_ranking],
     )
     result_texts = [r.doc["text"] for r in results]
     assert any("reptilian" in t for t in result_texts), (
-        "Dense top-1 must survive into the candidate pool with 25 lexical distractors "
-        "when ranker_guarantee >= 1"
+        "Dense top-1 must appear in the pool (even at low rank) via ranker_guarantee"
     )
 
 
