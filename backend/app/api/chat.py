@@ -10,6 +10,7 @@ from app.agents.orchestrator import route_agent
 from app.learning.trace_store import trace_store, Trace
 from app.chains.sequential import rag_chain
 from app.memory.retrieval import hybrid_retriever
+from app.providers.provider_router import router as provider_router
 
 router = APIRouter()
 
@@ -131,7 +132,8 @@ async def chat_ws(websocket: WebSocket, session_id: str, token: str = Query(defa
                 "type": "done",
                 "citations": citations,
                 "latency_ms": round(latency_ms),
-                "provider": data.get("provider", "ollama"),
+                "provider": provider_router.last_used_provider or "ollama",
+                "fallback_used": provider_router.fallback_used,
             })
 
             trace_store.record(Trace(
@@ -140,7 +142,7 @@ async def chat_ws(websocket: WebSocket, session_id: str, token: str = Query(defa
                 user_message=message,
                 assistant_response=full,
                 mode=resolved_mode,
-                provider=data.get("provider", "ollama"),
+                provider=provider_router.last_used_provider or "ollama",
                 latency_ms=latency_ms,
                 tokens=len(full.split()),
                 rating=None,
