@@ -12,7 +12,7 @@ _tasks: dict[str, dict] = {}
 async def agent_card():
     return {
         'agent_id': 'zorali-ai-v1',
-        'name': 'Zorali AI',
+        'name': 'Zorali',
         'version': '1.0.0',
         'skills': ['chat', 'task_execution', 'project_status', 'file_search', 'artifact_management'],
     }

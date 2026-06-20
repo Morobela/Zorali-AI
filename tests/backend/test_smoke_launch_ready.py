@@ -27,7 +27,7 @@ def test_file_upload_and_question_smoke(monkeypatch):
     p = client.post('/api/project', json={'name': 'smoke-file'}).json()
     files = {'file': ('facts.txt', b'Earth orbits the Sun', 'text/plain')}
     up = client.post(f"/api/files/upload?project_id={p['id']}", files=files)
-    assert up.status_code == 200
+    assert up.status_code == 202
 
 
 def test_provider_status_smoke():

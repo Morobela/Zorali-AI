@@ -39,7 +39,7 @@ async def lifespan(application: FastAPI):
     await task_queue.stop()
 
 
-app = FastAPI(title="Zorali AI", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Zorali", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -77,7 +77,7 @@ async def root():
         "name": settings.app_name,
         "version": "2.0.0",
         "status": "online",
-        "message": "Zorali AI backend is running",
+        "message": "Zorali backend is running",
         "features": [
             "local-first-execution",
             "fault-tolerant-orchestration",

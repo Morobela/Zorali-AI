@@ -1,7 +1,7 @@
-# Zorali AI OpenJarvis-Inspired Upgrade Plan
+# Zorali OpenJarvis-Inspired Upgrade Plan
 
 ## Current stack assessment
-- Frontend: React + Vite (`frontend/src/ZoraliAI.jsx`)
+- Frontend: React + Vite (`frontend/src/Zorali.jsx`)
 - Backend: FastAPI + WebSocket streaming (`backend/app/main.py`, `backend/app/api/chat.py`)
 - Package managers: `pip` for backend, `npm` for frontend
 - Storage: JSON repositories + local file storage (`backend/app/db/repositories.py`)

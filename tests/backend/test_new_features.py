@@ -25,7 +25,7 @@ def test_file_search_text_types():
     project = client.post('/api/project', json={'name': 'P3'}).json()
     files = {'file': ('note.txt', b'alpha beta gamma alpha', 'text/plain')}
     r = client.post(f"/api/files/upload?project_id={project['id']}", files=files)
-    assert r.status_code == 200
+    assert r.status_code == 202
     s = client.get(f"/api/files/search?project_id={project['id']}&q=alpha").json()
     assert len(s) >= 1
 
@@ -64,7 +64,7 @@ def test_chat_rag_context_in_prompt(monkeypatch):
     assert done is not None
     assert done['citations'], 'citations should be returned only for retrieved chunks'
     sys_msgs = [m['content'] for m in captured['messages'] if m['role'] == 'system']
-    assert any('Project file context:' in m and 'Paris is the capital of France' in m for m in sys_msgs)
+    assert any('Project file context (UNTRUSTED' in m and 'Paris is the capital of France' in m for m in sys_msgs)
 
 
 def test_upload_rejects_malicious_project_id_and_no_escape_write():

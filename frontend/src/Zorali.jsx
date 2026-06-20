@@ -7,7 +7,7 @@ import { apiGet, apiPost, apiPut, apiUpload, apiDelete } from './api/httpClient.
 const SUGGESTIONS = [
   ['💻', 'Write code', 'Create a React component for a dashboard'],
   ['🔎', 'Deep research', 'Research the best local AI stack for 2026'],
-  ['🎨', 'Generate image', 'Generate an image prompt for Zorali AI branding'],
+  ['🎨', 'Generate image', 'Generate an image prompt for Zorali branding'],
   ['📎', 'Analyze files', 'Explain the uploaded project files'],
   ['🧠', 'Project assistant', 'Scan this project and tell me what is broken'],
   ['🎙️', 'Voice mode', 'Start voice assistant mode'],
@@ -181,7 +181,7 @@ function NewProjectModal({ onConfirm, onCancel }) {
 }
 
 // ─── Main App ──────────────────────────────────────────────────────────────────
-export default function ZoraliAI() {
+export default function Zorali() {
   // Chat state
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -239,7 +239,7 @@ export default function ZoraliAI() {
       })
       .catch(() => {
         // Backend not running yet — keep local default
-        setProjects([{ id: 'default', name: 'Zorali AI' }])
+        setProjects([{ id: 'default', name: 'Zorali' }])
       })
   }, [])
 
@@ -447,9 +447,9 @@ export default function ZoraliAI() {
       {/* ── Sidebar ── */}
       <aside className="sidebar">
         <div className="brand">
-          <img src={logo} alt="Zorali AI" />
+          <img src={logo} alt="Zorali" />
           <div className="brand-text">
-            <strong>Zorali AI</strong>
+            <strong>Zorali</strong>
             <span>Local J.A.R.V.I.S.</span>
           </div>
         </div>
@@ -475,7 +475,7 @@ export default function ZoraliAI() {
 
         <section>
           <div className="section-title">Recent</div>
-          <div className="recent-item active">Zorali AI build</div>
+          <div className="recent-item active">Zorali build</div>
           <div className="recent-item">Website deployment</div>
           <div className="recent-item">Research notes</div>
         </section>
@@ -490,9 +490,9 @@ export default function ZoraliAI() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-left">
-            <img src={logo} alt="Zorali AI" className="topbar-logo" />
+            <img src={logo} alt="Zorali" className="topbar-logo" />
             <div>
-              <h1>Zorali AI</h1>
+              <h1>Zorali</h1>
               <p>Chat · Code · Research · Project Status · Safe Tools</p>
             </div>
           </div>
@@ -555,7 +555,7 @@ export default function ZoraliAI() {
         <section className="chat-area">
           {messages.length === 0 && (
             <div className="welcome">
-              <img src={logo} alt="Zorali AI" />
+              <img src={logo} alt="Zorali" />
               <h2>How can Zorali help?</h2>
               <p>Choose a starter or ask anything about your project.</p>
               <div className="cards">
@@ -615,7 +615,7 @@ export default function ZoraliAI() {
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
-              placeholder="Message Zorali AI…"
+              placeholder="Message Zorali…"
             />
             <button className="send-btn" onClick={() => send()} disabled={!input.trim()}>Send</button>
           </div>

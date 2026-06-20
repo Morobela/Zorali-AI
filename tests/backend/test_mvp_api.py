@@ -24,7 +24,7 @@ def test_upload_chunking_and_search_and_citations():
     p = client.post('/api/project', json={'name': 'files'}).json()
     payload = b'alpha bravo charlie\n' * 200
     up = client.post(f"/api/files/upload?project_id={p['id']}", files={'file': ('notes.txt', payload, 'text/plain')})
-    assert up.status_code == 200
+    assert up.status_code == 202
     assert len(up.json()['chunks']) > 1
     hits = client.get(f"/api/files/search?project_id={p['id']}&q=alpha notes").json()
     assert hits and {'file_id', 'filename', 'chunk_id', 'score'}.issubset(hits[0].keys())

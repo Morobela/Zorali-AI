@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 @dataclass
 class ZoraliResponse:
     text: str; trust_score: float=0.8; reasoning_depth: str='standard'; trace_id: str='demo'; elapsed_ms: float=0; tools_used: list=field(default_factory=list)
-class ZoraliAI:
+class Zorali:
     async def respond(self, message, session_id='default', user_id='local', user_role='user', stream_callback=None):
-        text = f'Zorali AI received: {message}'
+        text = f'Zorali received: {message}'
         if stream_callback:
             for word in text.split(): await stream_callback(word+' ')
         return ZoraliResponse(text=text)
