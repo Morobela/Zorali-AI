@@ -106,7 +106,7 @@ class Repository:
 
         return self.store.mutate(_filter)
 
-    def save_file(self, project_id: str, filename: str, content: bytes, extracted_text: str, chunks: list[dict[str, Any]]):
+    def save_file(self, project_id: str, filename: str, content: bytes, extracted_text: str, chunks: list[dict[str, Any]], indexing_status: str = "ready"):
         file_id = str(uuid4())
         upload_root = self.upload_root.resolve()
         project_dir = (upload_root / project_id).resolve()
@@ -122,9 +122,34 @@ class Repository:
         if project_dir not in full_path.parents:
             raise ValueError("Invalid upload path")
         full_path.write_bytes(content)
-        record = {"id": file_id, "project_id": project_id, "filename": Path(filename).name, "path": str(full_path), "extracted_text": extracted_text, "chunks": chunks, "created_at": _utc_now()}
+        record = {
+            "id": file_id,
+            "project_id": project_id,
+            "filename": Path(filename).name,
+            "path": str(full_path),
+            "extracted_text": extracted_text,
+            "chunks": chunks,
+            "indexing_status": indexing_status,
+            "created_at": _utc_now(),
+        }
         self.store.mutate(lambda s: s["files"].append(record))
         return record
+
+    def get_file(self, file_id: str) -> dict[str, Any] | None:
+        rows = self.store.mutate(lambda s: [f for f in s["files"] if f["id"] == file_id])
+        return rows[0] if rows else None
+
+    def update_file_indexing_status(self, file_id: str, status: str, chunks: list[dict[str, Any]] | None = None) -> bool:
+        """Update indexing_status and optionally replace chunks (with embeddings)."""
+        def _update(s):
+            for f in s["files"]:
+                if f["id"] == file_id:
+                    f["indexing_status"] = status
+                    if chunks is not None:
+                        f["chunks"] = chunks
+                    return True
+            return False
+        return self.store.mutate(_update)
 
     def list_files(self, project_id: str):
         return self.store.mutate(lambda s: [f for f in s["files"] if f["project_id"] == project_id])

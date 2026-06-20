@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
 from app.db.repositories import repo
 from app.core.config import settings
 
@@ -64,12 +64,38 @@ def _public_file(record: dict) -> dict:
         "project_id": record["project_id"],
         "filename": record["filename"],
         "chunks": public_chunks,
+        "indexing_status": record.get("indexing_status", "ready"),
         "created_at": record.get("created_at"),
     }
 
 
-@router.post('/upload')
-async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
+async def _embed_chunks_background(file_id: str, safe_name: str, text: str, chunks: list[dict]) -> None:
+    """Run embedding generation after the upload response has been returned."""
+    try:
+        from app.memory.embeddings import embed_texts
+        from app.memory.hybrid_search import _document_keywords
+        repo.update_file_indexing_status(file_id, "indexing")
+        if settings.rag_contextual_enabled:
+            doc_keywords = _document_keywords(text)
+            header = f"{safe_name} :: {' '.join(doc_keywords)}"
+            search_texts = [f"{header}\n{c['text']}" for c in chunks]
+        else:
+            search_texts = [c["text"] for c in chunks]
+        vectors = await embed_texts(search_texts, task="document")
+        if vectors and len(vectors) == len(chunks):
+            embedded_chunks = []
+            for chunk, vec in zip(chunks, vectors):
+                embedded_chunks.append({**chunk, "embedding": vec, "embedding_model": settings.rag_embedding_model})
+            repo.update_file_indexing_status(file_id, "ready", chunks=embedded_chunks)
+        else:
+            repo.update_file_indexing_status(file_id, "ready")
+    except Exception as exc:
+        _log.warning("Background embedding failed for %s: %s", file_id, exc)
+        repo.update_file_indexing_status(file_id, "failed")
+
+
+@router.post('/upload', status_code=202)
+async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...), file: UploadFile = File(...)):
     safe_name = Path(file.filename or '').name
     if safe_name != (file.filename or ''):
         raise HTTPException(status_code=400, detail='Invalid filename')
@@ -81,36 +107,31 @@ async def upload(project_id: str = Query(...), file: UploadFile = File(...)):
     text = extract_text(safe_name, raw)
     chunks = chunk_text(text)
 
-    # Pre-compute and store per-chunk embeddings at upload time.
-    # Uses the Nomic "search_document:" task prefix so the vectors are in the
-    # correct space for asymmetric retrieval. Model name is stored alongside
-    # each vector so stale embeddings from a different model can be detected.
-    if settings.rag_embeddings_enabled:
-        try:
-            from app.memory.embeddings import embed_texts
-            from app.memory.hybrid_search import _document_keywords
-            if settings.rag_contextual_enabled:
-                doc_keywords = _document_keywords(text)
-                header = f"{safe_name} :: {' '.join(doc_keywords)}"
-                search_texts = [f"{header}\n{c['text']}" for c in chunks]
-            else:
-                search_texts = [c['text'] for c in chunks]
-            vectors = await embed_texts(search_texts, task="document")
-            if vectors and len(vectors) == len(chunks):
-                for chunk, vec in zip(chunks, vectors):
-                    chunk["embedding"] = vec
-                    chunk["embedding_model"] = settings.rag_embedding_model
-        except Exception as exc:
-            _log.warning("Embedding generation skipped at upload: %s", exc)
-
+    # Save the file record immediately so the caller gets a file_id back.
+    # If embeddings are enabled, the actual Ollama call happens in a background
+    # task so the HTTP response is not held open while waiting for GPU inference.
+    indexing_status = "queued" if settings.rag_embeddings_enabled else "ready"
     try:
         record = repo.save_file(
             project_id=project_id, filename=safe_name, content=raw,
-            extracted_text=text, chunks=chunks,
+            extracted_text=text, chunks=chunks, indexing_status=indexing_status,
         )
-        return _public_file(record)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if settings.rag_embeddings_enabled:
+        background_tasks.add_task(_embed_chunks_background, record["id"], safe_name, text, chunks)
+
+    return _public_file(record)
+
+
+@router.get('/{file_id}/status')
+async def file_status(file_id: str):
+    """Poll indexing_status for a file after upload (queued → indexing → ready | failed)."""
+    record = repo.get_file(file_id)
+    if not record:
+        raise HTTPException(status_code=404, detail='File not found')
+    return {"id": file_id, "indexing_status": record.get("indexing_status", "ready")}
 
 
 @router.get('/search')

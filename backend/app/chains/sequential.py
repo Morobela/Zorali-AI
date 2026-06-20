@@ -36,7 +36,7 @@ async def _route_agent(inputs: dict) -> dict:
 
 
 async def _assemble_prompt(inputs: dict) -> dict:
-    system = inputs.get("system_prompt", "You are Zorali AI, a local-first assistant.")
+    system = inputs.get("system_prompt", "You are Zorali, a local-first assistant.")
     plan = inputs.get("agent_plan", "")
     rag = inputs.get("rag_context", "")
     history = inputs.get("history", [])

@@ -6,7 +6,7 @@ Combines:
 - HuggingFace PipelineRegistry for task extensibility
 - LangChain Runnable protocol: invoke / batch / stream
 
-Skills extend Zorali AI's capabilities without touching core code.
+Skills extend Zorali's capabilities without touching core code.
 """
 from __future__ import annotations
 import asyncio

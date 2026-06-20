@@ -1,6 +1,6 @@
-# Zorali AI
+# Zorali
 
-Zorali AI is a **local-first assistant MVP** with Claude/ChatGPT-style chat UX, project workspaces, file knowledge retrieval, streaming responses, and artifact versioning.
+Zorali is a **local-first assistant MVP** with Claude/ChatGPT-style chat UX, project workspaces, file knowledge retrieval, streaming responses, and artifact versioning.
 
 ## Working now
 - Zorali branding and UI shell (sidebar/chat/panel composer)

@@ -1,4 +1,4 @@
-# Zorali AI OpenJarvis-Inspired Upgrade Plan
+# Zorali OpenJarvis-Inspired Upgrade Plan
 
 ## Current stack assessment
 - Frontend: React + Vite (`frontend/src/ZoraliAI.jsx`)

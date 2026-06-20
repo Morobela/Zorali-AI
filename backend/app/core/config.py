@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_name: str = "Zorali AI"
+    app_name: str = "Zorali"
     app_env: str = "local"
     secret_key: str = "change-me-in-production"
     redis_url: str = "redis://redis:6379/0"

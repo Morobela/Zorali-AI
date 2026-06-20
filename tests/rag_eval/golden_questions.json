@@ -1,0 +1,272 @@
+[
+  {
+    "id": "q01",
+    "question": "How do I set up the Zorali backend for local development?",
+    "relevant_chunk_ids": ["doc_setup_0", "doc_setup_1"],
+    "documents": [
+      {
+        "id": "doc_setup_0",
+        "text": "To run the Zorali backend locally, install the requirements with pip install -r backend/requirements.txt. Then start the server with PYTHONPATH=backend uvicorn app.main:app --reload --port 8000. The backend will be available at http://localhost:8000."
+      },
+      {
+        "id": "doc_setup_1",
+        "text": "Before starting, copy .env.example to .env and set your SECRET_KEY. The POSTGRES_HOST should point to your local PostgreSQL instance. Redis must be running at the URL specified in REDIS_URL."
+      },
+      {
+        "id": "doc_unrelated_0",
+        "text": "The artifact versioning system stores every edit as an immutable version. Use POST /api/artifacts to create, and PUT /api/artifacts/{id} to add a new version."
+      },
+      {
+        "id": "doc_unrelated_1",
+        "text": "WebSocket streaming is available at /ws/chat/{session_id}. Send JSON with role and message fields. Tokens stream back as type=token events."
+      },
+      {
+        "id": "doc_unrelated_2",
+        "text": "File uploads are limited to 5 MB. Supported types include .txt, .md, .json, .csv, .py, .js, .ts, .html, .css, .pdf."
+      }
+    ]
+  },
+  {
+    "id": "q02",
+    "question": "What retrieval algorithm does Zorali use for file search?",
+    "relevant_chunk_ids": ["doc_rag_0", "doc_rag_1"],
+    "documents": [
+      {
+        "id": "doc_rag_0",
+        "text": "Zorali uses a two-stage hybrid retrieval pipeline. Stage 1 combines BM25 and TF-IDF rankings via Reciprocal Rank Fusion. Stage 2 applies a LexicalFeatureReranker that scores IDF-weighted term coverage, exact phrase matches, proximity, and bigram overlap."
+      },
+      {
+        "id": "doc_rag_1",
+        "text": "Optional dense semantic search is available when RAG_EMBEDDINGS_ENABLED=true. Dense embeddings are generated using Ollama with the nomic-embed-text model. The asymmetric retrieval uses search_document prefix for indexing and search_query prefix for queries."
+      },
+      {
+        "id": "doc_unrelated_3",
+        "text": "Projects can be created via POST /api/project with a name and optional description. Each project gets a UUID that scopes all files, artifacts, and chat history."
+      },
+      {
+        "id": "doc_unrelated_4",
+        "text": "The learning loop records traces of user interactions locally. Traces include latency, token count, and optional user ratings. LEARNING_LOOP_ENABLED controls whether tracing is active."
+      },
+      {
+        "id": "doc_unrelated_5",
+        "text": "Docker Compose deployment requires running docker compose up --build, then pulling the Ollama model with docker compose exec ollama ollama pull llama3.2:1b."
+      }
+    ]
+  },
+  {
+    "id": "q03",
+    "question": "How does the rate limiting system work in Zorali?",
+    "relevant_chunk_ids": ["doc_rate_0"],
+    "documents": [
+      {
+        "id": "doc_rate_0",
+        "text": "Zorali implements a token-bucket rate limiter. RATE_LIMIT_CAPACITY controls the maximum burst size in tokens. RATE_LIMIT_REFILL sets the token replenishment rate per second. Each client IP is tracked independently."
+      },
+      {
+        "id": "doc_unrelated_6",
+        "text": "Artifact content is stored as versioned snapshots. GET /api/artifacts/{id} returns all versions. The latest version is always at versions[-1]."
+      },
+      {
+        "id": "doc_unrelated_7",
+        "text": "The frontend is built with React and Vite. Run npm ci then npm run dev from the frontend directory to start the dev server on port 5173."
+      },
+      {
+        "id": "doc_unrelated_8",
+        "text": "PDF extraction currently uses a latin-1 decode approach to find text inside parentheses. For production use, install pypdf for proper page-aware extraction."
+      },
+      {
+        "id": "doc_unrelated_9",
+        "text": "The memory pool is inspired by vLLM PagedAttention. MEMORY_POOL_BLOCKS and MEMORY_POOL_BLOCK_SIZE control the pool size. This affects how many inference requests can run concurrently."
+      }
+    ]
+  },
+  {
+    "id": "q04",
+    "question": "What configuration variables control the hybrid search behavior?",
+    "relevant_chunk_ids": ["doc_config_0", "doc_config_1"],
+    "documents": [
+      {
+        "id": "doc_config_0",
+        "text": "RAG_RERANK_ENABLED toggles the lexical feature reranker. RAG_CANDIDATE_POOL sets how many candidates enter the reranking stage. RAG_RRF_K is the constant in the Reciprocal Rank Fusion formula. RAG_RERANK_WEIGHT controls the multiplicative boost applied by lexical features."
+      },
+      {
+        "id": "doc_config_1",
+        "text": "RAG_RANKER_GUARANTEE ensures the top N results from each individual ranker always enter the candidate pool even if their RRF score is low. RAG_DENSE_RRF_WEIGHT gives the dense ranker extra voting weight compared to each lexical ranker."
+      },
+      {
+        "id": "doc_unrelated_10",
+        "text": "Chat messages are persisted per project and session. The session_id scopes the conversation context window. All messages for a project can be retrieved via the repository."
+      },
+      {
+        "id": "doc_unrelated_11",
+        "text": "The task queue system is inspired by Higgsfield experiment queues. TASK_QUEUE_MAX_CONCURRENT limits parallel task execution. TASK_QUEUE_COST_BUDGET_USD caps spending per run."
+      },
+      {
+        "id": "doc_unrelated_12",
+        "text": "Cloud fallback activates when the local Ollama model is unavailable. Set CLOUD_API_KEY in .env to enable it. CLOUD_API_BASE must point to an OpenAI-compatible endpoint."
+      }
+    ]
+  },
+  {
+    "id": "q05",
+    "question": "How is contextual embedding done at upload time?",
+    "relevant_chunk_ids": ["doc_embed_0"],
+    "documents": [
+      {
+        "id": "doc_embed_0",
+        "text": "When RAG_CONTEXTUAL_ENABLED is true, each chunk is prefixed with a document-level context header before embedding. The header is formed from the filename and top document keywords: 'filename.txt :: keyword1 keyword2 ...'. This gives each chunk global document context during retrieval."
+      },
+      {
+        "id": "doc_unrelated_13",
+        "text": "Security: uploads are validated for size (max 5 MB), extension allowlist, and filename safety. Hidden files starting with a dot are blocked. Path traversal in project_id is rejected."
+      },
+      {
+        "id": "doc_unrelated_14",
+        "text": "The checkpoint system persists model state to disk. CHECKPOINT_ENABLED controls whether checkpointing runs. Checkpoints follow the TensorFlow SavedModel pattern."
+      },
+      {
+        "id": "doc_unrelated_15",
+        "text": "Skills are modular capabilities loaded at startup. SKILLS_AUTOLOAD controls automatic discovery. Each skill is a Python module exposing a skill_name and execute function."
+      },
+      {
+        "id": "doc_unrelated_16",
+        "text": "The orchestrator routes messages to different agent modes including deep research, chat, and task execution. The agent plan is generated before the LLM call and injected as a system message."
+      }
+    ]
+  },
+  {
+    "id": "q06",
+    "question": "What endpoints are available for managing files?",
+    "relevant_chunk_ids": ["doc_files_0", "doc_files_1"],
+    "documents": [
+      {
+        "id": "doc_files_0",
+        "text": "POST /api/files/upload accepts a multipart file upload with a project_id query parameter. It returns the file record with chunk count and indexing_status. The endpoint returns HTTP 202 immediately while background embedding proceeds."
+      },
+      {
+        "id": "doc_files_1",
+        "text": "GET /api/files/list returns all files for a project. GET /api/files/search runs hybrid retrieval against file chunks. DELETE /api/files/{file_id} removes the file record and deletes the bytes from disk. GET /api/files/{file_id}/status returns the current indexing_status."
+      },
+      {
+        "id": "doc_unrelated_17",
+        "text": "JWT tokens are issued on login with a 30-minute access token lifetime and 30-day refresh token. JWT_ACCESS_MINUTES and JWT_REFRESH_DAYS control these durations."
+      },
+      {
+        "id": "doc_unrelated_18",
+        "text": "The inference cost budget tracks API spending. INFERENCE_COST_BUDGET_USD is the per-session limit. Cost-aware routing prefers local models when the budget is exhausted."
+      },
+      {
+        "id": "doc_unrelated_19",
+        "text": "Memories are stored per user and project. save_memory records a text snippet. search_memories does token-overlap scoring to find relevant past memories."
+      }
+    ]
+  },
+  {
+    "id": "q07",
+    "question": "How does BM25 ranking work in the search engine?",
+    "relevant_chunk_ids": ["doc_bm25_0"],
+    "documents": [
+      {
+        "id": "doc_bm25_0",
+        "text": "BM25 ranks documents using term frequency saturation and document length normalization. The score for a term t in document d is: IDF(t) * (tf * (k1+1)) / (tf + k1 * (1 - b + b * dl/avgdl)). Zorali uses k1=1.5 and b=0.75."
+      },
+      {
+        "id": "doc_unrelated_20",
+        "text": "The batch processor allows multiple LLM requests to be processed concurrently. BATCH_MAX_CONCURRENT controls the maximum simultaneous requests. This is inspired by vLLM continuous batching."
+      },
+      {
+        "id": "doc_unrelated_21",
+        "text": "Projects are isolated namespaces. All files, artifacts, chats, and memories belong to a project. The project UUID is validated on every operation."
+      },
+      {
+        "id": "doc_unrelated_22",
+        "text": "The sequential RAG chain is used for structured answer synthesis. It takes retrieved chunks and generates a grounded response with inline citations."
+      },
+      {
+        "id": "doc_unrelated_23",
+        "text": "For web search, set WEB_SEARCH_ENABLED=true. The search provider must be configured separately. Results are injected into the agent plan before the LLM call."
+      }
+    ]
+  },
+  {
+    "id": "q08",
+    "question": "What happens when the Ollama service is unavailable?",
+    "relevant_chunk_ids": ["doc_fallback_0"],
+    "documents": [
+      {
+        "id": "doc_fallback_0",
+        "text": "When Ollama is unavailable, Zorali falls back to the configured cloud provider. The CLOUD_API_KEY must be set for this to work. CLOUD_API_BASE defaults to the OpenAI API endpoint. CLOUD_MODEL specifies the fallback model to use."
+      },
+      {
+        "id": "doc_unrelated_24",
+        "text": "The JSON persistence layer stores all data in store.json. The JsonStore class uses a threading lock to prevent concurrent write corruption. The entire file is read and rewritten on each mutation."
+      },
+      {
+        "id": "doc_unrelated_25",
+        "text": "Chunk text splitting uses a window of 700 characters with 100 character overlap. This ensures adjacent chunks share context at their boundaries."
+      },
+      {
+        "id": "doc_unrelated_26",
+        "text": "The LexicalFeatureReranker applies a multiplicative boost to the RRF-fused score: final = fused_norm * (1 + rerank_weight * lex_score). This means semantic-only matches retain their full fused score."
+      },
+      {
+        "id": "doc_unrelated_27",
+        "text": "The health endpoint GET /api/health returns service status. GET /api/ollama/health checks if the local Ollama service responds. GET /api/providers/status shows which providers are active."
+      }
+    ]
+  },
+  {
+    "id": "q09",
+    "question": "How are artifacts versioned and stored?",
+    "relevant_chunk_ids": ["doc_artifacts_0"],
+    "documents": [
+      {
+        "id": "doc_artifacts_0",
+        "text": "Artifacts are immutably versioned. Each update appends a new version with a timestamp rather than overwriting. The artifact record contains an id, project_id, name, and a versions array. Each version has version number, content, and created_at."
+      },
+      {
+        "id": "doc_unrelated_28",
+        "text": "TF-IDF scores documents by how often a term appears relative to how common it is across the corpus. Rare terms get higher IDF weight. The score is the product of term frequency and inverse document frequency."
+      },
+      {
+        "id": "doc_unrelated_29",
+        "text": "The PROVIDER_TIMEOUT_SECONDS setting controls how long to wait for a provider response. Default is 60 seconds. Requests that exceed this are treated as provider failures."
+      },
+      {
+        "id": "doc_unrelated_30",
+        "text": "The streaming chat uses FastAPI WebSocket. Tokens arrive as individual JSON frames with type=token. The final frame has type=done and includes citations."
+      },
+      {
+        "id": "doc_unrelated_31",
+        "text": "LEARNING_MIN_IMPROVEMENT_PCT sets the minimum quality improvement required before the learning loop updates the model preference. Default is 2.0 percent."
+      }
+    ]
+  },
+  {
+    "id": "q10",
+    "question": "How does Reciprocal Rank Fusion combine BM25 and TF-IDF rankings?",
+    "relevant_chunk_ids": ["doc_rrf_0", "doc_rrf_1"],
+    "documents": [
+      {
+        "id": "doc_rrf_0",
+        "text": "Reciprocal Rank Fusion assigns each document a score of 1/(k + rank) for each ranker, where k is a smoothing constant (default 60). Scores across rankers are summed. Documents appearing in multiple rankings receive cumulative score boosts."
+      },
+      {
+        "id": "doc_rrf_1",
+        "text": "In weighted RRF, each ranker has an associated weight multiplier. Dense rankers receive RAG_DENSE_RRF_WEIGHT (default 3.0) while each lexical ranker (BM25, TF-IDF) receives weight 1.0. This compensates for dense having a single ranker vs two lexical rankers."
+      },
+      {
+        "id": "doc_unrelated_32",
+        "text": "The ZORALI_DATA_DIR environment variable overrides the default data directory. If not set, the system tries /data first (for Docker), then falls back to a local data/ directory."
+      },
+      {
+        "id": "doc_unrelated_33",
+        "text": "File text extraction supports .txt, .md, .json, .csv, .py, .js, .ts, .html, .css, .jsx, .tsx, .toml, .yaml, .yml, .xml, .sh, and .pdf extensions."
+      },
+      {
+        "id": "doc_unrelated_34",
+        "text": "The project scanner in app.reality.project_scanner reads the directory structure and file statistics. It is used by the /status task command to report project health."
+      }
+    ]
+  }
+]
