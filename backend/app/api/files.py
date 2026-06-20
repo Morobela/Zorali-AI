@@ -1,9 +1,10 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from app.db.repositories import repo
 from app.core.config import settings
+from app.core.rbac import user_or_above
 
 _log = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ async def _embed_chunks_background(file_id: str, safe_name: str, text: str, chun
 
 
 @router.post('/upload', status_code=202)
-async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...), file: UploadFile = File(...)):
+async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...), file: UploadFile = File(...), _user=Depends(user_or_above)):
     safe_name = Path(file.filename or '').name
     if safe_name != (file.filename or ''):
         raise HTTPException(status_code=400, detail='Invalid filename')
@@ -126,7 +127,7 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
 
 
 @router.get('/{file_id}/status')
-async def file_status(file_id: str):
+async def file_status(file_id: str, _user=Depends(user_or_above)):
     """Poll indexing_status for a file after upload (queued → indexing → ready | failed)."""
     record = repo.get_file(file_id)
     if not record:
@@ -135,19 +136,19 @@ async def file_status(file_id: str):
 
 
 @router.get('/search')
-async def search(project_id: str = Query(...), q: str = Query(...), limit: int = 5):
+async def search(project_id: str = Query(...), q: str = Query(...), limit: int = 5, _user=Depends(user_or_above)):
     """Search file chunks via the hybrid retrieval engine (uses dense embeddings when available)."""
     from app.memory.retrieval import hybrid_retriever
     return await hybrid_retriever.retrieve(q, top_k=limit, project_id=project_id)
 
 
 @router.get('/list')
-async def list_files(project_id: str = Query(...)):
+async def list_files(project_id: str = Query(...), _user=Depends(user_or_above)):
     return [_public_file(f) for f in repo.list_files(project_id)]
 
 
 @router.delete('/{file_id}')
-async def delete_file(file_id: str):
+async def delete_file(file_id: str, _user=Depends(user_or_above)):
     deleted = repo.delete_file(file_id)
     if not deleted:
         raise HTTPException(status_code=404, detail='File not found')

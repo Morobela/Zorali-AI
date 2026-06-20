@@ -94,9 +94,9 @@ export default function ChatMessage({ message }) {
           </div>
         )}
       </div>
-      {message.meta && !isUser && (
+      {message.meta && !isUser && message.meta.reasoning_depth && (
         <div className="msg-meta">
-          Trust {Math.round((message.meta.trust_score || 0.82) * 100)}% · {message.meta.reasoning_depth}
+          {message.meta.reasoning_depth}
         </div>
       )}
     </div>
