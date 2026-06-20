@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
+from app.core.rbac import user_or_above
 from app.db.repositories import repo
 
 router = APIRouter(prefix='/api/artifacts')
@@ -16,17 +17,17 @@ class ArtifactUpdate(BaseModel):
 
 
 @router.post('')
-async def create_artifact(payload: ArtifactCreate):
+async def create_artifact(payload: ArtifactCreate, _user=user_or_above):
     return repo.create_artifact(payload.project_id, payload.name, payload.content)
 
 
 @router.get('')
-async def list_artifacts(project_id: str = Query(...)):
+async def list_artifacts(project_id: str = Query(...), _user=user_or_above):
     return repo.list_artifacts(project_id)
 
 
 @router.get('/{artifact_id}')
-async def get_artifact(artifact_id: str):
+async def get_artifact(artifact_id: str, _user=user_or_above):
     data = repo.get_artifact(artifact_id)
     if not data:
         raise HTTPException(status_code=404, detail='Artifact not found')
@@ -34,7 +35,7 @@ async def get_artifact(artifact_id: str):
 
 
 @router.put('/{artifact_id}')
-async def update_artifact(artifact_id: str, payload: ArtifactUpdate):
+async def update_artifact(artifact_id: str, payload: ArtifactUpdate, _user=user_or_above):
     data = repo.update_artifact(artifact_id, payload.content)
     if not data:
         raise HTTPException(status_code=404, detail='Artifact not found')

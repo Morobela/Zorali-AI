@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException
+from app.core.rbac import user_or_above
 
 router = APIRouter(prefix='/a2a')
 
@@ -19,7 +20,7 @@ async def agent_card():
 
 
 @router.post('/tasks/send')
-async def send_task(body: dict):
+async def send_task(body: dict, _user=user_or_above):
     task_id = str(uuid4())
     _tasks[task_id] = {
         'task_id': task_id,
@@ -32,7 +33,7 @@ async def send_task(body: dict):
 
 
 @router.get('/tasks/{task_id}')
-async def get_task(task_id: str):
+async def get_task(task_id: str, _user=user_or_above):
     task = _tasks.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
@@ -40,6 +41,6 @@ async def get_task(task_id: str):
 
 
 @router.get('/tasks')
-async def list_tasks():
+async def list_tasks(_user=user_or_above):
     return list(_tasks.values())
 

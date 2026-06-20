@@ -1,14 +1,16 @@
 import time
 from uuid import uuid4
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from app.models.llm import stream_llm
 from app.reality.project_scanner import status_report
 from app.core.config import settings
+from app.core.auth import decode_token
 from app.db.repositories import repo
 from app.agents.orchestrator import route_agent
 from app.learning.trace_store import trace_store, Trace
 from app.chains.sequential import rag_chain
 from app.memory.retrieval import hybrid_retriever
+from app.providers.provider_router import router as provider_router
 
 router = APIRouter()
 
@@ -30,7 +32,17 @@ def _task_result(status: str, result: str, tools_used: list[str], citations: lis
 
 
 @router.websocket("/ws/chat/{session_id}")
-async def chat_ws(websocket: WebSocket, session_id: str):
+async def chat_ws(websocket: WebSocket, session_id: str, token: str = Query(default=None)):
+    # Validate JWT before accepting the connection
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    try:
+        user = decode_token(token)
+    except Exception:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await websocket.accept()
     try:
         while True:
@@ -41,8 +53,8 @@ async def chat_ws(websocket: WebSocket, session_id: str):
             local_first = data.get("local_first", True)
 
             if mode == "status":
-                project_path = data.get("project_path") or settings.project_root
-                await websocket.send_json({"type": "status", "data": status_report(project_path)})
+                # Never accept a user-supplied path — always scan the configured root
+                await websocket.send_json({"type": "status", "data": status_report(settings.project_root)})
                 continue
 
             message = data.get("message", "").strip()
@@ -116,16 +128,21 @@ async def chat_ws(websocket: WebSocket, session_id: str):
             latency_ms = (time.perf_counter() - t_start) * 1000
             citations = [{k: c[k] for k in ("file_id", "filename", "chunk_id", "score")} for c in retrieved]
             repo.add_chat_message(project_id, session_id, "assistant", full, citations=citations)
-            await websocket.send_json({"type": "done", "citations": citations})
+            await websocket.send_json({
+                "type": "done",
+                "citations": citations,
+                "latency_ms": round(latency_ms),
+                "provider": provider_router.last_used_provider or "ollama",
+                "fallback_used": provider_router.fallback_used,
+            })
 
-            # Record trace for local learning loop (privacy-first: stays on device)
             trace_store.record(Trace(
                 trace_id=str(uuid4()),
                 session_id=session_id,
                 user_message=message,
                 assistant_response=full,
                 mode=resolved_mode,
-                provider=data.get("provider", "ollama"),
+                provider=provider_router.last_used_provider or "ollama",
                 latency_ms=latency_ms,
                 tokens=len(full.split()),
                 rating=None,

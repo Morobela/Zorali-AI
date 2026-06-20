@@ -3,8 +3,11 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.db.repositories import repo
+from app.core.auth import create_access_token
 
 client = TestClient(app)
+
+_WS_TOKEN = create_access_token("test-user", "owner")
 
 
 def test_project_and_chat_history():
@@ -52,7 +55,7 @@ def test_chat_rag_context_in_prompt(monkeypatch):
     files = {'file': ('facts.txt', b'Paris is the capital of France', 'text/plain')}
     client.post(f"/api/files/upload?project_id={project['id']}", files=files)
 
-    with client.websocket_connect('/ws/chat/test-session') as ws:
+    with client.websocket_connect(f'/ws/chat/test-session?token={_WS_TOKEN}') as ws:
         ws.send_json({'mode': 'chat', 'project_id': project['id'], 'message': 'capital of France'})
         done = None
         while True:

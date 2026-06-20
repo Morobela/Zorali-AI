@@ -1,12 +1,13 @@
 from fastapi import APIRouter
 from app.providers.provider_router import router as provider_router
 from app.core.config import settings
+from app.core.rbac import user_or_above
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 
 @router.get("/status")
-async def provider_status():
+async def provider_status(_user=user_or_above):
     try:
         ollama = await provider_router.ollama.health()
     except Exception as exc:

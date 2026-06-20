@@ -136,7 +136,9 @@ function Message({ message }) {
       </div>
       {message.meta && !isUser && (
         <div className="msg-meta">
-          Trust {Math.round((message.meta.trust_score || 0.82) * 100)}% · {message.meta.reasoning_depth}
+          {message.meta.provider && <span>{message.meta.provider}</span>}
+          {message.meta.latency_ms != null && <span> · {message.meta.latency_ms}ms</span>}
+          {message.meta.citation_count > 0 && <span> · {message.meta.citation_count} source{message.meta.citation_count !== 1 ? 's' : ''}</span>}
         </div>
       )}
     </div>
@@ -211,8 +213,8 @@ export default function Zorali() {
   const [panelLoading, setPanelLoading] = useState(false)
   const [memoryQuery, setMemoryQuery] = useState('')
 
-  // Connectors
-  const [connectors, setConnectors] = useState({ Zorali: true, Web: true, Gemini: false, GPT: false, Images: false })
+  // Connectors — only show real, wired integrations. Cloud providers are not yet active.
+  const [connectors, setConnectors] = useState({})
 
   // Toasts
   const [toasts, setToasts] = useState([])
@@ -252,7 +254,14 @@ export default function Zorali() {
   useEffect(() => {
     const socket = createZoraliSocket(sessionId.current, {
       onOpen: () => setConnected(true),
-      onClose: () => setConnected(false),
+      onClose: (event) => {
+        setConnected(false)
+        // 1008 = policy violation (auth failure)
+        if (event?.code === 1008) {
+          localStorage.removeItem('zorali_token')
+          showToast('Session expired — please reload to log in again.', 'error', 8000)
+        }
+      },
       onMessage: (msg) => {
         if (msg.type === 'token') {
           setMessages(prev => {
@@ -265,7 +274,16 @@ export default function Zorali() {
         if (msg.type === 'done') {
           setMessages(prev => prev.map((m, i) =>
             i === prev.length - 1
-              ? { ...m, streaming: false, meta: msg, citations: msg.citations || [] }
+              ? {
+                  ...m,
+                  streaming: false,
+                  meta: {
+                    latency_ms: msg.latency_ms,
+                    provider: msg.provider,
+                    citation_count: (msg.citations || []).length,
+                  },
+                  citations: msg.citations || [],
+                }
               : m
           ))
         }
@@ -341,8 +359,9 @@ export default function Zorali() {
       try {
         showToast(`Uploading ${file.name}…`, 'info', 10000)
         const result = await apiUpload(`/api/files/upload?project_id=${activeProjectId}`, fd)
-        setAttachedFiles(prev => [...prev, { name: file.name, id: result.id }])
-        showToast(`✓ ${file.name} uploaded & indexed`, 'success')
+        setAttachedFiles(prev => [...prev, { name: file.name, id: result.id, status: result.indexing_status }])
+        const statusLabel = result.indexing_status === 'queued' ? 'queued for indexing' : result.indexing_status === 'ready' ? 'indexed' : result.indexing_status
+        showToast(`✓ ${file.name} uploaded — ${statusLabel}`, 'success')
       } catch (err) {
         showToast(`Upload failed: ${err.message}`, 'error')
       }
@@ -371,7 +390,7 @@ export default function Zorali() {
     }
     if (name === 'artifacts') loadArtifacts()
     if (name === 'memory') loadMemory()
-    if (name === 'deepSearch') setPanelData({ steps: ['Planning research path', 'Browsing sources', 'Cross-checking memory', 'Synthesizing answer'] })
+    if (name === 'deepSearch') setPanelData({ info: 'Search Preview: sends your query to the agent for web-assisted answers. Full source ranking, deduplication, and citation mapping are planned for a future release.' })
   }
 
   async function loadArtifacts() {
@@ -645,9 +664,9 @@ export default function Zorali() {
               )}
 
               {/* Deep Search panel */}
-              {panel === 'deepSearch' && panelData?.steps && panelData.steps.map((s, i) => (
-                <div key={i} className="step-item">{i + 1}. {s}</div>
-              ))}
+              {panel === 'deepSearch' && panelData?.info && (
+                <p style={{ color: 'var(--zorali-muted)', fontSize: 13, lineHeight: 1.5 }}>{panelData.info}</p>
+              )}
 
               {/* Memory panel */}
               {panel === 'memory' && panelData?.items && (
