@@ -5,8 +5,11 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.db import repositories as repos
+from app.core.auth import create_access_token
 
 client = TestClient(app)
+
+_WS_TOKEN = create_access_token("test-user", "owner")
 
 
 def test_health_endpoint():
@@ -39,7 +42,7 @@ def test_artifact_create_update_list():
 
 
 def test_chat_route_import_and_task_mode():
-    with client.websocket_connect('/ws/chat/s1') as ws:
+    with client.websocket_connect(f'/ws/chat/s1?token={_WS_TOKEN}') as ws:
       ws.send_json({'mode': 'task', 'project_id': 'default', 'message': '/help'})
       msg = ws.receive_json()
       assert msg['type'] == 'task_result'
