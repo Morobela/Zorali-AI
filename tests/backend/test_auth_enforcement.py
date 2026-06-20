@@ -24,6 +24,9 @@ PROTECTED_ROUTES = [
     ("GET", "/api/inference/energy"),
     ("GET", "/api/providers/status"),
     ("GET", "/api/ollama/health"),
+    # A2A task endpoints — agent card stays public, task data must not be
+    ("POST", "/a2a/tasks/send"),
+    ("GET", "/a2a/tasks"),
 ]
 
 
@@ -81,3 +84,11 @@ def test_health_endpoint_is_public():
     """/api/health must stay public (load-balancer probe)."""
     client = TestClient(app)
     assert client.get("/api/health").status_code == 200
+
+
+def test_a2a_agent_card_is_public():
+    """Agent card must be discoverable without auth (A2A discovery spec)."""
+    client = TestClient(app)
+    resp = client.get("/a2a/.well-known/agent.json")
+    assert resp.status_code == 200
+    assert resp.json()["agent_id"] == "zorali-ai-v1"
