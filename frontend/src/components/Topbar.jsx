@@ -8,7 +8,7 @@ export default function Topbar({ onPanelToggle, activePanel }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <h1>Zorali AI</h1>
+        <h1>Zorali</h1>
         <p>Chat · Code · Research · Project Status · Safe Tools</p>
       </div>
       <div className="pills">

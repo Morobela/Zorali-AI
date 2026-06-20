@@ -15,9 +15,9 @@ export default function Sidebar({ projects, activeProjectId, onSelectProject, on
   return (
     <aside className="sidebar">
       <div className="brand">
-        <img src={logo} alt="Zorali AI" />
+        <img src={logo} alt="Zorali" />
         <div className="brand-text">
-          <strong>Zorali AI</strong>
+          <strong>Zorali</strong>
           <span>Local J.A.R.V.I.S.</span>
         </div>
       </div>
@@ -56,7 +56,7 @@ export default function Sidebar({ projects, activeProjectId, onSelectProject, on
 
       <section>
         <div className="section-title">Recent</div>
-        <div className="recent-item active">Zorali AI build</div>
+        <div className="recent-item active">Zorali build</div>
         <div className="recent-item">Website deployment</div>
         <div className="recent-item">Research notes</div>
       </section>

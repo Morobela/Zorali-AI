@@ -6,8 +6,8 @@ export default function LoginPage({ onLaunch }) {
     <div className="login-splash">
       <div className="splash-glow" aria-hidden="true" />
       <div className="splash-content">
-        <img src={logo} alt="Zorali AI" className="splash-logo" />
-        <h1 className="splash-title">Zorali AI</h1>
+        <img src={logo} alt="Zorali" className="splash-logo" />
+        <h1 className="splash-title">Zorali</h1>
         <p className="splash-tagline">Chat · Code · Research · Safe Tools</p>
         <button className="splash-btn" onClick={onLaunch}>
           Launch Zorali
