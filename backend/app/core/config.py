@@ -6,6 +6,10 @@ class Settings(BaseSettings):
     app_name: str = "Zorali"
     app_env: str = "local"
     secret_key: str = "change-me-in-production"
+
+    # JWT lifetimes (read from JWT_ACCESS_MINUTES / JWT_REFRESH_DAYS)
+    jwt_access_minutes: int = 30
+    jwt_refresh_days: int = 30
     redis_url: str = "redis://redis:6379/0"
     ollama_host: str = "http://ollama:11434"
     ollama_model: str = "llama3.2:1b"
