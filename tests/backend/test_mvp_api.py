@@ -1,5 +1,4 @@
-import os
-from importlib import reload
+import asyncio
 
 from fastapi.testclient import TestClient
 
@@ -48,10 +47,10 @@ def test_chat_route_import_and_task_mode():
       assert msg['type'] == 'task_result'
 
 
-def test_zorali_data_dir_persistence(tmp_path, monkeypatch):
-    monkeypatch.setenv('ZORALI_DATA_DIR', str(tmp_path))
-    reload(repos)
+def test_repository_persists_across_instances():
+    """Rows written through one Repository instance are visible from a fresh
+    instance — persistence now lives in Postgres, not a per-instance JSON file."""
     repo = repos.Repository()
-    p = repo.create_project('persist')
+    p = asyncio.run(repo.create_project('persist'))
     repo2 = repos.Repository()
-    assert any(x['id'] == p['id'] for x in repo2.list_projects())
+    assert any(x['id'] == p['id'] for x in asyncio.run(repo2.list_projects()))

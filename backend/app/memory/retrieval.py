@@ -38,7 +38,7 @@ class HybridRetriever:
         if not query or not query.strip():
             return []
 
-        files = repo.list_files(project_id)
+        files = await repo.list_files(project_id)
         documents = build_chunk_documents(files, contextual=settings.rag_contextual_enabled)
         if not documents:
             return []

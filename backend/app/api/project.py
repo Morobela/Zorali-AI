@@ -20,14 +20,14 @@ async def project_status(_user=user_or_above):
 
 @router.post("")
 async def create_project(payload: ProjectCreate, _user=user_or_above):
-    return repo.create_project(payload.name, payload.description)
+    return await repo.create_project(payload.name, payload.description)
 
 
 @router.get("")
 async def list_projects(_user=user_or_above):
-    return repo.list_projects()
+    return await repo.list_projects()
 
 
 @router.get("/{project_id}/chats")
 async def project_chats(project_id: str, session_id: str | None = None, _user=user_or_above):
-    return repo.list_chat_messages(project_id, session_id)
+    return await repo.list_chat_messages(project_id, session_id)

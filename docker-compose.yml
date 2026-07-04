@@ -5,9 +5,12 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
-      - ollama
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
     volumes:
       - ./backend:/app
       - ./data:/data
@@ -39,6 +42,11 @@ services:
       POSTGRES_USER: zorali
       POSTGRES_PASSWORD: zorali
       POSTGRES_DB: zorali_ai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zorali -d zorali_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./infra/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
