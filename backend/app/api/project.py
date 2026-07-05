@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.core.config import settings
 from app.core.rbac import user_or_above
@@ -20,14 +20,17 @@ async def project_status(_user=user_or_above):
 
 @router.post("")
 async def create_project(payload: ProjectCreate, _user=user_or_above):
-    return await repo.create_project(payload.name, payload.description)
+    return await repo.create_project(payload.name, payload.description, owner_id=_user["sub"])
 
 
 @router.get("")
 async def list_projects(_user=user_or_above):
-    return await repo.list_projects()
+    return await repo.list_projects(owner_id=_user["sub"])
 
 
 @router.get("/{project_id}/chats")
 async def project_chats(project_id: str, session_id: str | None = None, _user=user_or_above):
-    return await repo.list_chat_messages(project_id, session_id)
+    rows = await repo.list_chat_messages(project_id, session_id, owner_id=_user["sub"])
+    if rows is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return rows

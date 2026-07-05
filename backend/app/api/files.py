@@ -116,7 +116,12 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
         record = await repo.save_file(
             project_id=project_id, filename=safe_name, content=raw,
             extracted_text=text, chunks=chunks, indexing_status=indexing_status,
+            owner_id=_user["sub"],
         )
+    except LookupError as exc:
+        # Project does not exist or is not owned by this caller — do not leak
+        # which by returning 404.
+        raise HTTPException(status_code=404, detail='Project not found') from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -129,7 +134,7 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
 @router.get('/{file_id}/status')
 async def file_status(file_id: str, _user=user_or_above):
     """Poll indexing_status for a file after upload (queued → indexing → ready | failed)."""
-    record = await repo.get_file(file_id)
+    record = await repo.get_file(file_id, owner_id=_user["sub"])
     if not record:
         raise HTTPException(status_code=404, detail='File not found')
     return {"id": file_id, "indexing_status": record.get("indexing_status", "ready")}
@@ -139,17 +144,23 @@ async def file_status(file_id: str, _user=user_or_above):
 async def search(project_id: str = Query(...), q: str = Query(...), limit: int = 5, _user=user_or_above):
     """Search file chunks via the hybrid retrieval engine (uses dense embeddings when available)."""
     from app.memory.retrieval import hybrid_retriever
-    return await hybrid_retriever.retrieve(q, top_k=limit, project_id=project_id)
+    results = await hybrid_retriever.retrieve(q, top_k=limit, project_id=project_id, owner_id=_user["sub"])
+    if results is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    return results
 
 
 @router.get('/list')
 async def list_files(project_id: str = Query(...), _user=user_or_above):
-    return [_public_file(f) for f in await repo.list_files(project_id)]
+    files = await repo.list_files(project_id, owner_id=_user["sub"])
+    if files is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    return [_public_file(f) for f in files]
 
 
 @router.delete('/{file_id}')
 async def delete_file(file_id: str, _user=user_or_above):
-    deleted = await repo.delete_file(file_id)
+    deleted = await repo.delete_file(file_id, owner_id=_user["sub"])
     if not deleted:
         raise HTTPException(status_code=404, detail='File not found')
     return {'deleted': file_id}

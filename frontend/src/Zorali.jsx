@@ -420,7 +420,7 @@ export default function Zorali() {
   async function saveMemory() {
     if (!input.trim()) return showToast('Type memory text in composer first.', 'info')
     try {
-      await apiPost('/api/memory', { project_id: activeProjectId, user_id: 'local', text: input.trim() })
+      await apiPost('/api/memory', { project_id: activeProjectId, text: input.trim() })
       showToast('Memory saved', 'success')
       if (panel === 'memory') loadMemory()
     } catch (e) { showToast(`Memory save failed: ${e.message}`, 'error') }
@@ -428,13 +428,13 @@ export default function Zorali() {
 
   async function searchMemory() {
     try {
-      const data = await apiGet(`/api/memory/semantic-search?project_id=${activeProjectId}&user_id=local&q=${encodeURIComponent(memoryQuery || 'project')}`)
+      const data = await apiGet(`/api/memory/semantic-search?project_id=${activeProjectId}&q=${encodeURIComponent(memoryQuery || 'project')}`)
       setPanelData({ type: 'memory_search', ...data })
     } catch (e) { showToast(`Memory search failed: ${e.message}`, 'error') }
   }
 
   async function deleteMemory(id) {
-    await apiDelete(`/api/memory/${id}?user_id=local`)
+    await apiDelete(`/api/memory/${id}`)
     loadMemory()
   }
 
