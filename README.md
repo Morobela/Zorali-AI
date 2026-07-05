@@ -1,106 +1,136 @@
 # Zorali
 
-Zorali is a **local-first assistant MVP** with Claude/ChatGPT-style chat UX, project workspaces, file knowledge retrieval, streaming responses, and artifact versioning.
+Zorali is a **local-first assistant** with a Claude/ChatGPT-style chat UX, project
+workspaces, file knowledge retrieval, streaming responses, and artifact versioning.
+Authentication and per-user data isolation are enforced, and all state persists in
+Postgres (with pgvector for embeddings).
 
-## Working now
-- Zorali branding and UI shell (sidebar/chat/panel composer)
-- WebSocket streaming chat (`/ws/chat/{session_id}`)
-- Project create/list + chat history
+## Features
+- WebSocket streaming chat (`/ws/chat/{session_id}`), JWT-authenticated via `?token=`
+- **JWT authentication + RBAC** (owner / admin / user / readonly) enforced on every
+  data route; register, login and refresh tokens
+- **Per-user data isolation**: every project, file, artifact, chat and memory is
+  scoped to the authenticated account (JWT `sub`); cross-user access returns 404
+- **Postgres / pgvector data layer** — projects, chat history, files, chunks (with
+  optional dense embeddings), artifacts and memories; schema managed by Alembic
 - File upload, chunking, and two-stage hybrid retrieval with citations:
   - Stage 1: BM25 + TF-IDF fused via Reciprocal Rank Fusion (in-process index cache)
   - Stage 2: `LexicalFeatureReranker` (IDF-weighted coverage, exact phrase, proximity, bigrams)
-  - Optional: dense semantic search via Ollama (`RAG_EMBEDDINGS_ENABLED=true`, Nomic task prefixes)
-- Task mode commands (`/status`, `/files`, `/search`, `/read`, `/artifact ...`, `/help`)
-- Artifact create/list/read/update with versions
-- JSON persistence via `ZORALI_DATA_DIR` (defaults to `/data`)
-- Docker and docker-compose deployment
+  - Optional: dense semantic search via Ollama (`RAG_EMBEDDINGS_ENABLED=true`, Nomic task prefixes),
+    fused into the lexical results with weighted RRF
+- Non-blocking file indexing: uploads return immediately with an `indexing_status`
+  (`queued → indexing → ready | failed`) you can poll
+- Native **PDF text extraction** via `pypdf`
+- Task-mode commands (`/status`, `/files`, `/search`, `/read`, `/artifact ...`, `/help`)
+- Artifact create / list / read / update with version history
+- **Token-bucket rate limiting** (per JWT sub, IP fallback), configurable via settings
+- **Prometheus metrics** at `/metrics` (request counter + latency histogram)
+- Installable **PWA** (`manifest.webmanifest` + service worker)
+- Ollama local inference with optional OpenAI-compatible cloud fallback
+- Docker / docker-compose deployment (dev and production stacks)
 
-## Not yet built
-- Full autonomous tool execution
-- Dedicated vector store (embeddings currently live in the JSON store — see Roadmap)
-- Multi-user RBAC hardening
-- Native PDF parsing
-
-## Docker quick start
+## Docker quick start (development)
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build          # backend runs Alembic migrations on startup
 docker compose exec ollama ollama pull llama3.2:1b
-docker compose restart backend
 ```
-- Frontend: http://localhost:5173
+- Frontend (Vite dev server): http://localhost:5173
 - Backend health: http://localhost:8000/api/health
+
+Create an owner account (idempotent), then log in from the UI. Run the script from
+the repo root against a reachable database (the dev compose publishes Postgres on
+`localhost:5432`):
+```bash
+POSTGRES_HOST=localhost ZORALI_ADMIN_EMAIL=you@example.com \
+  ZORALI_ADMIN_PASSWORD=change-me python infra/scripts/seed_admin.py
+```
+Or register a normal user directly from the login screen.
+
+## Production deployment
+```bash
+cp .env.example .env      # set SECRET_KEY, APP_ENV=production, POSTGRES_*, etc.
+docker compose -f docker-compose.prod.yml up --build -d
+docker compose -f docker-compose.prod.yml exec ollama ollama pull llama3.2:1b
+```
+The production stack serves the built frontend through nginx (which also reverse-proxies
+`/api`, `/a2a` and `/ws` to the backend with WebSocket upgrade headers). Only nginx
+publishes ports (80/443); Postgres, Redis, Ollama and the backend stay on the internal
+network. The backend runs `uvicorn` without `--reload` and without source bind mounts;
+migrations run automatically on container start.
+
+With `APP_ENV=production` the dev-only `POST /api/auth/demo-login` returns 404.
+
+### Migrating an existing JSON store
+If you are upgrading from a pre-Postgres deployment, import the old `data/store.json`:
+```bash
+POSTGRES_HOST=localhost python infra/scripts/import_json_store.py data/store.json
+```
+The importer is idempotent and can be re-run safely.
 
 ## Local development
 ```bash
+# Postgres (with pgvector) must be reachable; then run migrations:
+cd backend && POSTGRES_HOST=localhost alembic upgrade head && cd ..
+
 # backend
 pip install -r backend/requirements.txt
 PYTHONPATH=backend uvicorn app.main:app --reload --port 8000
 
 # frontend
-cd frontend
-npm ci
-npm run dev
+cd frontend && npm ci && npm run dev
+
+# tests (requires a reachable Postgres)
+POSTGRES_HOST=localhost PYTHONPATH=backend pytest tests/backend -q
 ```
 
-## Production deployment (Docker Compose)
-1. `cp .env.example .env` and set:
-   - `SECRET_KEY`
-   - `CLOUD_API_KEY` (optional, for cloud fallback)
-   - `WEB_SEARCH_ENABLED=true` to enable Deep Research live web search.
-2. Build and run: `docker compose up --build -d`
-3. Pull local model: `docker compose exec ollama ollama pull llama3.2:1b`
-4. Restart backend: `docker compose restart backend`
-5. Verify:
-   - `GET /api/health`
-   - `GET /api/ollama/health`
-   - `GET /api/providers/status`
-
-## Ollama + cloud fallback setup
-- Install/start Ollama locally or via docker compose (`ollama` service).
-- Pull starter model:
-  - `ollama pull llama3.2:1b` (host install), or
-  - `docker compose exec ollama ollama pull llama3.2:1b` (compose).
-- Configure optional cloud fallback in `.env`:
-  - `CLOUD_API_BASE` (OpenAI-compatible endpoint, e.g. `https://api.openai.com/v1`)
-  - `CLOUD_API_KEY` (required for cloud fallback)
-  - `CLOUD_MODEL` (default cloud model)
-- Fallback behavior:
-  - Local-first mode tries Ollama first.
-  - If local model is unavailable/fails, it falls back to cloud when `CLOUD_API_KEY` is configured.
+## Configuration
+Key `.env` settings (see `.env.example` for the full list):
+- `SECRET_KEY` — JWT signing key (change in production)
+- `APP_ENV` — `local`/`dev`/`test` enable demo-login; `production` disables it
+- `JWT_ACCESS_MINUTES`, `JWT_REFRESH_DAYS` — token lifetimes
+- `POSTGRES_*` — database connection
+- `RATE_LIMIT_CAPACITY`, `RATE_LIMIT_REFILL` — token-bucket rate limiter
+- `OLLAMA_HOST`, `OLLAMA_MODEL` — local inference
+- `CLOUD_API_BASE`, `CLOUD_API_KEY`, `CLOUD_MODEL` — optional cloud fallback
+- `RAG_EMBEDDINGS_ENABLED`, `RAG_EMBEDDING_MODEL` — optional dense retrieval
 
 ## API overview
-- `GET /api/health`
-- `POST /api/project`, `GET /api/project`
-- `POST /api/files/upload`, `GET /api/files/list`, `GET /api/files/search`
+- `GET /api/health`, `GET /metrics`
+- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh`
+- `POST /api/project`, `GET /api/project`, `GET /api/project/{id}/chats`
+- `POST /api/files/upload`, `GET /api/files/list`, `GET /api/files/search`, `GET /api/files/{id}/status`
 - `POST /api/artifacts`, `GET /api/artifacts`, `GET/PUT /api/artifacts/{artifact_id}`
-- `WS /ws/chat/{session_id}`
+- `POST /api/memory`, `GET /api/memory/search`, `DELETE /api/memory/{id}`
+- `WS /ws/chat/{session_id}?token=<jwt>`
 
 ## Security notes
-- Upload size limit and extension allowlist enabled.
-- Path traversal rejected for `project_id` and filename.
-- Hidden files like `.env` are blocked from upload.
+- JWT authentication and role-based access control on every data route.
+- Per-user isolation: users can only see and mutate their own projects and data.
+- Upload size limit and extension allowlist; path traversal rejected for `project_id`
+  and filename; hidden files like `.env` are blocked from upload.
+- Retrieved file context is treated as untrusted evidence in the chat prompt, not as
+  instructions.
+- Token-bucket rate limiting runs before any compute.
 - Dangerous file-write/delete task commands are intentionally not implemented.
-- Advanced tool execution should use explicit approval gates.
 
 ## Project structure
 - `backend/app/api`: REST + WS routes
-- `backend/app/db/repositories.py`: JSON persistence and retrieval
+- `backend/app/db`: async SQLAlchemy models, session, and the Postgres repository layer
+- `backend/migrations`: Alembic migrations (pgvector extension + schema)
+- `backend/app/memory`: hybrid retrieval engine, embeddings, vector store
 - `frontend/src`: app UI and client wiring
+- `infra/`: nginx config, Prometheus config, and operational scripts
 - `tests/backend`: backend test coverage
 
-## Current limitations
-- Deep Research web search uses a provider interface placeholder unless you wire a real search backend.
-- Voice and Image are placeholders
-- PDF extraction is basic and should be upgraded with pypdf
-- Persistence is JSON-based, not Postgres-backed yet
-- Memory search uses hybrid BM25/TF-IDF lexical retrieval with feature reranking. `RAG_EMBEDDINGS_ENABLED=true` enables dense search for uploaded file chunks only — memories do not yet have embedding generation or storage.
-- Embeddings are stored inside `store.json`; for large corpora move to pgvector/FAISS/Qdrant.
-- File indexing blocks the upload HTTP response; large files may time out.
+## Known limitations
+- Deep Research web search uses a provider interface placeholder unless a real search
+  backend is wired in.
+- Voice and Image inputs are placeholders.
+- Memory search uses hybrid BM25/TF-IDF lexical retrieval with feature reranking;
+  dense embeddings currently cover uploaded file chunks, not memories.
 
 ## Roadmap
-1. Move embeddings to a dedicated vector store (pgvector, FAISS, or Qdrant).
-2. Non-blocking background indexing with status field and retry support.
-3. Add artifact side-panel editing UX.
-4. Add auth/RBAC hardening and audit logging.
-5. Add richer CI and e2e tests including retrieval quality metrics (Recall@5, MRR).
+1. Dense embeddings for memories (not just file chunks).
+2. Artifact side-panel editing UX.
+3. Richer CI and e2e tests including retrieval quality metrics (Recall@5, MRR).

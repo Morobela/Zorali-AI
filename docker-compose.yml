@@ -46,6 +46,9 @@ services:
       POSTGRES_USER: zorali
       POSTGRES_PASSWORD: zorali
       POSTGRES_DB: zorali_ai
+    # Published for host-side migrations, tests and seed_admin.py (dev only).
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U zorali -d zorali_ai"]
       interval: 5s

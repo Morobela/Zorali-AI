@@ -18,12 +18,12 @@ def extract_text(filename: str, content: bytes) -> str:
     lower = filename.lower()
     if lower.endswith('.pdf'):
         try:
-            raw_str = content.decode('latin-1', errors='replace')
-            import re
-            text_parts = re.findall(r'\(([^\)]{1,400})\)', raw_str)
-            extracted = ' '.join(text_parts)
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            extracted = '\n'.join((page.extract_text() or '') for page in reader.pages)
             if len(extracted.strip()) < 20:
-                return '[PDF uploaded — native text extraction not yet available. Install pypdf for full support.]'
+                return '[PDF uploaded — no extractable text (likely a scanned/image PDF).]'
             return extracted
         except Exception:
             return '[PDF uploaded — could not extract text.]'
