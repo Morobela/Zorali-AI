@@ -18,12 +18,12 @@ def extract_text(filename: str, content: bytes) -> str:
     lower = filename.lower()
     if lower.endswith('.pdf'):
         try:
-            raw_str = content.decode('latin-1', errors='replace')
-            import re
-            text_parts = re.findall(r'\(([^\)]{1,400})\)', raw_str)
-            extracted = ' '.join(text_parts)
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            extracted = '\n'.join((page.extract_text() or '') for page in reader.pages)
             if len(extracted.strip()) < 20:
-                return '[PDF uploaded — native text extraction not yet available. Install pypdf for full support.]'
+                return '[PDF uploaded — no extractable text (likely a scanned/image PDF).]'
             return extracted
         except Exception:
             return '[PDF uploaded — could not extract text.]'
@@ -75,7 +75,7 @@ async def _embed_chunks_background(file_id: str, safe_name: str, text: str, chun
     try:
         from app.memory.embeddings import embed_texts
         from app.memory.hybrid_search import _document_keywords
-        repo.update_file_indexing_status(file_id, "indexing")
+        await repo.update_file_indexing_status(file_id, "indexing")
         if settings.rag_contextual_enabled:
             doc_keywords = _document_keywords(text)
             header = f"{safe_name} :: {' '.join(doc_keywords)}"
@@ -87,12 +87,12 @@ async def _embed_chunks_background(file_id: str, safe_name: str, text: str, chun
             embedded_chunks = []
             for chunk, vec in zip(chunks, vectors):
                 embedded_chunks.append({**chunk, "embedding": vec, "embedding_model": settings.rag_embedding_model})
-            repo.update_file_indexing_status(file_id, "ready", chunks=embedded_chunks)
+            await repo.update_file_indexing_status(file_id, "ready", chunks=embedded_chunks)
         else:
-            repo.update_file_indexing_status(file_id, "ready")
+            await repo.update_file_indexing_status(file_id, "ready")
     except Exception as exc:
         _log.warning("Background embedding failed for %s: %s", file_id, exc)
-        repo.update_file_indexing_status(file_id, "failed")
+        await repo.update_file_indexing_status(file_id, "failed")
 
 
 @router.post('/upload', status_code=202)
@@ -113,10 +113,15 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
     # task so the HTTP response is not held open while waiting for GPU inference.
     indexing_status = "queued" if settings.rag_embeddings_enabled else "ready"
     try:
-        record = repo.save_file(
+        record = await repo.save_file(
             project_id=project_id, filename=safe_name, content=raw,
             extracted_text=text, chunks=chunks, indexing_status=indexing_status,
+            owner_id=_user["sub"],
         )
+    except LookupError as exc:
+        # Project does not exist or is not owned by this caller — do not leak
+        # which by returning 404.
+        raise HTTPException(status_code=404, detail='Project not found') from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -129,7 +134,7 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
 @router.get('/{file_id}/status')
 async def file_status(file_id: str, _user=user_or_above):
     """Poll indexing_status for a file after upload (queued → indexing → ready | failed)."""
-    record = repo.get_file(file_id)
+    record = await repo.get_file(file_id, owner_id=_user["sub"])
     if not record:
         raise HTTPException(status_code=404, detail='File not found')
     return {"id": file_id, "indexing_status": record.get("indexing_status", "ready")}
@@ -139,17 +144,23 @@ async def file_status(file_id: str, _user=user_or_above):
 async def search(project_id: str = Query(...), q: str = Query(...), limit: int = 5, _user=user_or_above):
     """Search file chunks via the hybrid retrieval engine (uses dense embeddings when available)."""
     from app.memory.retrieval import hybrid_retriever
-    return await hybrid_retriever.retrieve(q, top_k=limit, project_id=project_id)
+    results = await hybrid_retriever.retrieve(q, top_k=limit, project_id=project_id, owner_id=_user["sub"])
+    if results is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    return results
 
 
 @router.get('/list')
 async def list_files(project_id: str = Query(...), _user=user_or_above):
-    return [_public_file(f) for f in repo.list_files(project_id)]
+    files = await repo.list_files(project_id, owner_id=_user["sub"])
+    if files is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    return [_public_file(f) for f in files]
 
 
 @router.delete('/{file_id}')
 async def delete_file(file_id: str, _user=user_or_above):
-    deleted = repo.delete_file(file_id)
+    deleted = await repo.delete_file(file_id, owner_id=_user["sub"])
     if not deleted:
         raise HTTPException(status_code=404, detail='File not found')
     return {'deleted': file_id}

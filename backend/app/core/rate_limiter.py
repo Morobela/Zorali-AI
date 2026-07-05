@@ -74,4 +74,9 @@ class RateLimiter:
         return await call_next(request)
 
 
-limiter = RateLimiter(capacity=60.0, refill_rate=1.0)
+from app.core.config import settings
+
+limiter = RateLimiter(
+    capacity=settings.rate_limit_capacity,
+    refill_rate=settings.rate_limit_refill,
+)

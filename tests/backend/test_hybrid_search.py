@@ -321,43 +321,45 @@ def test_build_chunk_documents_passes_embedding_model_metadata():
 # ── Integration: repo.search_chunks contract ────────────────────────────────
 
 def test_repo_search_chunks_preserves_shape_and_improves_ranking():
+    import asyncio
     from app.db.repositories import repo
 
-    project = repo.create_project("hybrid-search-test", "rag")
+    project = asyncio.run(repo.create_project("hybrid-search-test", "rag"))
     pid = project["id"]
     chunks = [
         {"id": 0, "text": "The quarterly revenue report shows strong year over year growth"},
         {"id": 1, "text": "the and or of to in on with as by for"},
         {"id": 2, "text": "Employees enjoyed the summer picnic in the park"},
     ]
-    repo.save_file(
+    asyncio.run(repo.save_file(
         project_id=pid, filename="report.md", content=b"x",
         extracted_text=" ".join(c["text"] for c in chunks), chunks=chunks,
-    )
+    ))
 
-    results = repo.search_chunks(pid, "revenue report", limit=3)
+    results = asyncio.run(repo.search_chunks(pid, "revenue report", limit=3))
     assert results, "should retrieve at least one chunk"
     assert set(results[0].keys()) == {"file_id", "filename", "chunk_id", "text", "score"}
     assert results[0]["chunk_id"] == 0
     assert results[0]["filename"] == "report.md"
-    assert repo.search_chunks(pid, "", limit=3) == []
+    assert asyncio.run(repo.search_chunks(pid, "", limit=3)) == []
 
 
 def test_repo_search_chunks_idf_over_naive_overlap():
     """A discriminative rare term must beat a chunk full of repeated common words."""
+    import asyncio
     from app.db.repositories import repo
 
-    project = repo.create_project("hybrid-idf-test", "rag")
+    project = asyncio.run(repo.create_project("hybrid-idf-test", "rag"))
     pid = project["id"]
     chunks = [
         {"id": 0, "text": "general notes about the project and the team and the plan"},
         {"id": 1, "text": "the kubernetes deployment manifest defines three replicas"},
     ]
-    repo.save_file(
+    asyncio.run(repo.save_file(
         project_id=pid, filename="notes.md", content=b"x",
         extracted_text=" ".join(c["text"] for c in chunks), chunks=chunks,
-    )
-    results = repo.search_chunks(pid, "kubernetes deployment", limit=2)
+    ))
+    results = asyncio.run(repo.search_chunks(pid, "kubernetes deployment", limit=2))
     assert results[0]["chunk_id"] == 1
 
 

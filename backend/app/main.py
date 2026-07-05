@@ -18,6 +18,7 @@ from app.api.inference_stats import router as inference_router
 from app.a2a.endpoint import router as a2a_router
 from app.core.config import settings
 from app.core.rate_limiter import limiter
+from app.core.metrics import metrics_endpoint, metrics_middleware
 from app.core.hooks import global_hooks
 from app.inference.batch_processor import batch_processor
 from app.orchestration.task_queue import task_queue
@@ -51,6 +52,15 @@ app.add_middleware(
 
 # Rate limiting middleware (security priority #1)
 app.middleware("http")(limiter)
+
+# Prometheus metrics middleware — added last so it is the outermost layer and
+# records every request, including rate-limited (429) rejections.
+app.middleware("http")(metrics_middleware)
+
+
+@app.get("/metrics")
+async def metrics():
+    return metrics_endpoint()
 
 # Original routes — preserved intact
 app.include_router(health_router)

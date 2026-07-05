@@ -3,17 +3,38 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: zorali
+          POSTGRES_PASSWORD: zorali
+          POSTGRES_DB: zorali_ai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zorali -d zorali_ai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Run database migrations
+        env:
+          POSTGRES_HOST: localhost
+        run: |
+          cd backend
+          alembic upgrade head
       - name: Backend tests
         env:
           ZORALI_DATA_DIR: ${{ runner.temp }}/zorali-data
-        run: |
-          pip install -r backend/requirements.txt
-          PYTHONPATH=backend pytest tests/backend -q
+          POSTGRES_HOST: localhost
+        run: PYTHONPATH=backend pytest tests/backend -q
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

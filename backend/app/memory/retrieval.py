@@ -34,11 +34,21 @@ _log = logging.getLogger(__name__)
 
 
 class HybridRetriever:
-    async def retrieve(self, query: str, top_k: int = 5, *, project_id: str = "default"):
+    async def retrieve(
+        self, query: str, top_k: int = 5, *, project_id: str = "default", owner_id: str | None = None
+    ):
+        """Retrieve top chunks for ``query`` within ``project_id``.
+
+        When ``owner_id`` is supplied and does not own the project, returns
+        ``None`` so HTTP callers can 404. Trusted internal callers (agents,
+        chains) pass no ``owner_id`` and always get a list.
+        """
+        files = await repo.list_files(project_id, owner_id=owner_id)
+        if files is None:
+            return None
         if not query or not query.strip():
             return []
 
-        files = repo.list_files(project_id)
         documents = build_chunk_documents(files, contextual=settings.rag_contextual_enabled)
         if not documents:
             return []

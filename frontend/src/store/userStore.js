@@ -5,6 +5,7 @@ export const useUserStore = create((set) => ({
   setUser: (user) => set({ user }),
   clearUser: () => {
     localStorage.removeItem('zorali_token')
+    localStorage.removeItem('zorali_refresh_token')
     set({ user: null })
   },
 }))
