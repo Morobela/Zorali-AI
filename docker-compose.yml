@@ -16,8 +16,12 @@ services:
       - ./data:/data
       - ./:/workspace:ro
 
+  # Development frontend: Vite dev server with hot reload. The frontend
+  # Dockerfile is now a production (nginx) build — see docker-compose.prod.yml.
   frontend:
-    build: ./frontend
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
     environment:
       VITE_API_TARGET: http://backend:8000
       VITE_WS_TARGET: ws://backend:8000

@@ -1,0 +1,73 @@
+# Production stack.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Differences from the development docker-compose.yml:
+#   - Frontend is a static Vite build served by nginx (multi-stage image),
+#     which also reverse-proxies /api, /a2a and /ws to the backend.
+#   - Backend runs uvicorn without --reload and without a source bind mount;
+#     the image is immutable and migrations run on startup (docker-entrypoint.sh).
+#   - Only the nginx frontend publishes ports (80/443). Postgres, Redis,
+#     Ollama and the backend are reachable only on the internal network.
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+    # No source bind mount — the image is immutable. Only persistent uploaded
+    # file bytes live on a named volume.
+    volumes:
+      - app_data:/data
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-zorali}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zorali}
+      POSTGRES_DB: ${POSTGRES_DB:-zorali_ai}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zorali} -d ${POSTGRES_DB:-zorali_ai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infra/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+volumes:
+  ollama_data:
+  pg_data:
+  redis_data:
+  app_data:
