@@ -18,6 +18,19 @@ class Settings(BaseSettings):
     cloud_model: str = "gpt-4o-mini"
     provider_timeout_seconds: float = 60.0
     web_search_enabled: bool = False
+    # Optional Tavily search API key — when set, deep research uses Tavily
+    # instead of the DuckDuckGo instant-answer API (much richer results).
+    tavily_api_key: str = ""
+    # Deep research: how many of the top search hits get fetched and read.
+    deep_research_max_pages: int = Field(default=3, ge=1, le=10)
+    # Max characters of extracted text kept per fetched page.
+    deep_research_page_chars: int = Field(default=2400, ge=200, le=20000)
+    # Sandboxed code execution (artifact "Run", /run task command, code_execution
+    # tool). Off by default: the sandbox is `python -I` in a subprocess with a
+    # timeout — it is NOT a container and does not block network or filesystem
+    # access, so only enable it on trusted single-admin deployments.
+    code_execution_enabled: bool = False
+    code_execution_timeout_seconds: int = Field(default=10, ge=1, le=120)
     frontend_url: str = "http://localhost:5173"
     project_root: str = "/app"
 

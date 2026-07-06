@@ -27,7 +27,15 @@ def test_upload_chunking_and_search_and_citations():
     payload = b'alpha bravo charlie\n' * 200
     up = client.post(f"/api/files/upload?project_id={p['id']}", files={'file': ('notes.txt', payload, 'text/plain')})
     assert up.status_code == 202
-    assert len(up.json()['chunks']) > 1
+    # Ingestion (extraction + chunking) is asynchronous: the response carries
+    # the file id and a queued status; TestClient runs the background task
+    # before the next request, after which chunks are searchable.
+    body = up.json()
+    assert body['indexing_status'] == 'queued'
+    status = client.get(f"/api/files/{body['id']}/status").json()
+    assert status['indexing_status'] == 'ready'
+    listed = client.get(f"/api/files/list?project_id={p['id']}").json()
+    assert len(listed[0]['chunks']) > 1
     hits = client.get(f"/api/files/search?project_id={p['id']}&q=alpha notes").json()
     assert hits and {'file_id', 'filename', 'chunk_id', 'score'}.issubset(hits[0].keys())
 

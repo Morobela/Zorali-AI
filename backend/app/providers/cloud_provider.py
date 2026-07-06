@@ -6,6 +6,28 @@ from app.core.config import settings
 from app.providers.base_provider import BaseProvider
 
 
+def _to_openai_messages(messages: list[dict]) -> list[dict]:
+    """Translate the internal (Ollama-style) message format to OpenAI's.
+
+    Messages carrying an ``images`` list (base64 payloads for vision models)
+    become multi-part content with data-URL image parts; text-only messages
+    pass through unchanged.
+    """
+    converted = []
+    for msg in messages:
+        images = msg.get("images")
+        if not images:
+            converted.append({k: v for k, v in msg.items() if k != "images"})
+            continue
+        parts: list[dict] = [{"type": "text", "text": msg.get("content", "")}]
+        parts += [
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}}
+            for img in images
+        ]
+        converted.append({"role": msg.get("role", "user"), "content": parts})
+    return converted
+
+
 class CloudProvider(BaseProvider):
     name = "cloud"
 
@@ -14,7 +36,7 @@ class CloudProvider(BaseProvider):
             raise RuntimeError("Cloud provider is not configured. Set CLOUD_API_KEY.")
         payload = {
             "model": model or settings.cloud_model,
-            "messages": messages,
+            "messages": _to_openai_messages(messages),
             "stream": True,
         }
         headers = {

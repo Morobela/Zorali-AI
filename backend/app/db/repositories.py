@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from sqlalchemy import delete, select
 
-from app.db.models import Artifact, ChatMessage, Chunk, File, Memory, Project
+from app.db.models import Artifact, ChatMessage, Chunk, File, Memory, MemoryTriple, Project
 from app.db.session import SessionLocal
 
 STOPWORDS = {
@@ -84,13 +84,29 @@ def _artifact_dict(row: Artifact) -> dict[str, Any]:
     }
 
 
-def _memory_dict(row: Memory) -> dict[str, Any]:
-    return {
+def _memory_dict(row: Memory, include_embedding: bool = False) -> dict[str, Any]:
+    memory = {
         "id": row.id,
         "project_id": row.project_id,
         "user_id": row.owner_id,
         "text": row.text,
         "created_at": _iso(row.created_at),
+    }
+    # Embeddings are large float arrays for the retrieval layer only — they
+    # must never leak into API responses (mirrors _public_file for chunks).
+    if include_embedding and row.embedding is not None:
+        memory["embedding"] = list(row.embedding)
+        memory["embedding_model"] = row.embedding_model
+    return memory
+
+
+def _triple_dict(row: MemoryTriple) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "memory_id": row.memory_id,
+        "subject": row.subject,
+        "relation": row.relation,
+        "object": row.object,
     }
 
 
@@ -381,9 +397,14 @@ class Repository:
             return _file_dict(row, list(chunks))
 
     async def update_file_indexing_status(
-        self, file_id: str, status: str, chunks: list[dict[str, Any]] | None = None
+        self,
+        file_id: str,
+        status: str,
+        chunks: list[dict[str, Any]] | None = None,
+        extracted_text: str | None = None,
     ) -> bool:
-        """Update indexing_status and optionally replace chunks (with embeddings)."""
+        """Update indexing_status and optionally replace extracted text and
+        chunks (with embeddings). Used by the background ingestion task."""
         async with SessionLocal() as session:
             async with session.begin():
                 row = (
@@ -392,6 +413,8 @@ class Repository:
                 if row is None:
                     return False
                 row.indexing_status = status
+                if extracted_text is not None:
+                    row.extracted_text = extracted_text
                 if chunks is not None:
                     await session.execute(delete(Chunk).where(Chunk.file_id == file_id))
                     session.add_all(
@@ -552,14 +575,30 @@ class Repository:
 
     # ── Memories ────────────────────────────────────────────────────────────
 
-    async def save_memory(self, project_id: str, user_id: str, text: str) -> dict[str, Any]:
+    async def save_memory(
+        self,
+        project_id: str,
+        user_id: str,
+        text: str,
+        embedding: list[float] | None = None,
+        embedding_model: str | None = None,
+    ) -> dict[str, Any]:
         async with SessionLocal() as session:
             async with session.begin():
-                row = Memory(id=str(uuid4()), project_id=project_id, owner_id=user_id, text=text)
+                row = Memory(
+                    id=str(uuid4()),
+                    project_id=project_id,
+                    owner_id=user_id,
+                    text=text,
+                    embedding=embedding,
+                    embedding_model=embedding_model,
+                )
                 session.add(row)
             return _memory_dict(row)
 
-    async def list_memories(self, project_id: str, user_id: str) -> list[dict[str, Any]]:
+    async def list_memories(
+        self, project_id: str, user_id: str, include_embedding: bool = False
+    ) -> list[dict[str, Any]]:
         async with SessionLocal() as session:
             rows = (
                 await session.execute(
@@ -568,7 +607,52 @@ class Repository:
                     .order_by(Memory.created_at)
                 )
             ).scalars().all()
-            return [_memory_dict(r) for r in rows]
+            return [_memory_dict(r, include_embedding=include_embedding) for r in rows]
+
+    # ── Memory graph (triples) ──────────────────────────────────────────────
+
+    async def save_memory_triples(
+        self,
+        memory_id: str,
+        project_id: str,
+        owner_id: str,
+        triples: list[tuple[str, str, str]],
+    ) -> list[dict[str, Any]]:
+        """Persist (subject, relation, object) facts extracted from a memory."""
+        if not triples:
+            return []
+        async with SessionLocal() as session:
+            async with session.begin():
+                rows = [
+                    MemoryTriple(
+                        memory_id=memory_id,
+                        project_id=project_id,
+                        owner_id=owner_id,
+                        subject=s[:255],
+                        relation=r[:64],
+                        object=o[:255],
+                    )
+                    for s, r, o in triples
+                ]
+                session.add_all(rows)
+            return [_triple_dict(row) for row in rows]
+
+    async def list_memory_triples(
+        self, project_id: str, owner_id: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        async with SessionLocal() as session:
+            rows = (
+                await session.execute(
+                    select(MemoryTriple)
+                    .where(
+                        MemoryTriple.project_id == project_id,
+                        MemoryTriple.owner_id == owner_id,
+                    )
+                    .order_by(MemoryTriple.id)
+                    .limit(limit)
+                )
+            ).scalars().all()
+            return [_triple_dict(r) for r in rows]
 
     async def search_memories(
         self, project_id: str, user_id: str, query: str, limit: int = 5

@@ -109,11 +109,18 @@ registry.register(ToolSpec(
     requires_role="user",
 ))
 
+async def _web_search_tool(inputs: dict[str, Any]) -> dict[str, Any]:
+    from app.providers.search_provider import get_search_provider
+
+    return await get_search_provider().search(inputs["query"], limit=5)
+
+
 registry.register(ToolSpec(
     name="web_search",
     input_schema={"query": "string"},
     output_schema={"results": "array"},
-    handler=lambda x: {"results": [], "note": "Coming soon: configure a web search provider"},
+    # Live search via Tavily (TAVILY_API_KEY) or DuckDuckGo; respects WEB_SEARCH_ENABLED
+    handler=lambda x: _web_search_tool(x),
     requires_role="user",
 ))
 
@@ -135,20 +142,41 @@ registry.register(ToolSpec(
     approval_required=True,
 ))
 
+async def _code_execution_tool(inputs: dict[str, Any]) -> dict[str, Any]:
+    from app.core.config import settings
+
+    if not settings.code_execution_enabled:
+        raise PermissionError("Code execution is disabled. Set CODE_EXECUTION_ENABLED=true to enable it.")
+    from app.tools.code_sandbox import code_sandbox
+
+    return await code_sandbox.run_python(inputs["code"])
+
+
 registry.register(ToolSpec(
     name="code_execution",
     input_schema={"code": "string"},
-    output_schema={"output": "string"},
-    handler=lambda x: {"output": "sandbox placeholder"},
+    output_schema={"stdout": "string", "stderr": "string", "returncode": "int"},
+    # Sandboxed `python -I` subprocess; the CODE_EXECUTION_ENABLED setting is
+    # the explicit opt-in (checked inside the handler), the admin role gate
+    # is defense in depth on top.
+    handler=lambda x: _code_execution_tool(x),
     requires_role="admin",
-    approval_required=True,
 ))
+
+
+async def _document_search_tool(inputs: dict[str, Any]) -> dict[str, Any]:
+    from app.db.repositories import repo
+
+    hits = await repo.search_chunks(inputs["project_id"], inputs["query"], limit=5)
+    return {"hits": hits or []}
+
 
 registry.register(ToolSpec(
     name="document_search",
     input_schema={"project_id": "string", "query": "string"},
     output_schema={"hits": "array"},
-    handler=lambda x: {"hits": []},
+    # Hybrid retrieval over the project's uploaded files
+    handler=lambda x: _document_search_tool(x),
     requires_role="user",
 ))
 

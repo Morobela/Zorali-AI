@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 
@@ -12,6 +13,17 @@ router = APIRouter(prefix='/api/files')
 
 TEXT_EXTS = {'.txt', '.md', '.json', '.csv', '.py', '.js', '.ts', '.html', '.css', '.jsx', '.tsx', '.toml', '.yaml', '.yml', '.xml', '.sh', '.pdf'}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def validate_extension(filename: str) -> None:
+    """Reject unsupported file types up front, before any processing.
+
+    Extraction itself runs in a background task, so this synchronous check is
+    the only type gate the upload request performs.
+    """
+    lower = filename.lower()
+    if not any(lower.endswith(ext) for ext in TEXT_EXTS):
+        raise HTTPException(status_code=400, detail=f'Unsupported file type: {Path(filename).suffix}')
 
 
 def extract_text(filename: str, content: bytes) -> str:
@@ -70,28 +82,42 @@ def _public_file(record: dict) -> dict:
     }
 
 
-async def _embed_chunks_background(file_id: str, safe_name: str, text: str, chunks: list[dict]) -> None:
-    """Run embedding generation after the upload response has been returned."""
+async def _ingest_file_background(file_id: str, safe_name: str, raw: bytes) -> None:
+    """Full ingestion pipeline, run after the upload response has returned.
+
+    Extraction (pypdf on a 500-page manual can take tens of seconds) runs in a
+    worker thread so it never blocks the event loop; embedding generation (GPU
+    inference via Ollama) follows in the same task. The caller polls
+    ``GET /api/files/{id}/status`` for queued → indexing → ready | failed.
+    """
     try:
-        from app.memory.embeddings import embed_texts
-        from app.memory.hybrid_search import _document_keywords
         await repo.update_file_indexing_status(file_id, "indexing")
-        if settings.rag_contextual_enabled:
-            doc_keywords = _document_keywords(text)
-            header = f"{safe_name} :: {' '.join(doc_keywords)}"
-            search_texts = [f"{header}\n{c['text']}" for c in chunks]
-        else:
-            search_texts = [c["text"] for c in chunks]
-        vectors = await embed_texts(search_texts, task="document")
-        if vectors and len(vectors) == len(chunks):
-            embedded_chunks = []
-            for chunk, vec in zip(chunks, vectors):
-                embedded_chunks.append({**chunk, "embedding": vec, "embedding_model": settings.rag_embedding_model})
-            await repo.update_file_indexing_status(file_id, "ready", chunks=embedded_chunks)
-        else:
-            await repo.update_file_indexing_status(file_id, "ready")
+        # CPU-bound: keep the event loop free while pypdf/decoding runs.
+        text = await asyncio.to_thread(extract_text, safe_name, raw)
+        chunks = chunk_text(text)
+
+        embedded_chunks = chunks
+        if settings.rag_embeddings_enabled:
+            from app.memory.embeddings import embed_texts
+            from app.memory.hybrid_search import _document_keywords
+
+            if settings.rag_contextual_enabled:
+                doc_keywords = _document_keywords(text)
+                header = f"{safe_name} :: {' '.join(doc_keywords)}"
+                search_texts = [f"{header}\n{c['text']}" for c in chunks]
+            else:
+                search_texts = [c["text"] for c in chunks]
+            vectors = await embed_texts(search_texts, task="document")
+            if vectors and len(vectors) == len(chunks):
+                embedded_chunks = [
+                    {**chunk, "embedding": vec, "embedding_model": settings.rag_embedding_model}
+                    for chunk, vec in zip(chunks, vectors)
+                ]
+        await repo.update_file_indexing_status(
+            file_id, "ready", chunks=embedded_chunks, extracted_text=text
+        )
     except Exception as exc:
-        _log.warning("Background embedding failed for %s: %s", file_id, exc)
+        _log.warning("Background ingestion failed for %s: %s", file_id, exc)
         await repo.update_file_indexing_status(file_id, "failed")
 
 
@@ -102,20 +128,18 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
         raise HTTPException(status_code=400, detail='Invalid filename')
     if safe_name.startswith('.'):
         raise HTTPException(status_code=400, detail='Hidden files are blocked')
+    validate_extension(safe_name)
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail='File too large (max 5 MB)')
-    text = extract_text(safe_name, raw)
-    chunks = chunk_text(text)
 
-    # Save the file record immediately so the caller gets a file_id back.
-    # If embeddings are enabled, the actual Ollama call happens in a background
-    # task so the HTTP response is not held open while waiting for GPU inference.
-    indexing_status = "queued" if settings.rag_embeddings_enabled else "ready"
+    # Save the file record immediately so the caller gets a file_id back;
+    # extraction, chunking and embedding all happen in a background task so a
+    # large PDF cannot hold the request open or block the event loop.
     try:
         record = await repo.save_file(
             project_id=project_id, filename=safe_name, content=raw,
-            extracted_text=text, chunks=chunks, indexing_status=indexing_status,
+            extracted_text='', chunks=[], indexing_status='queued',
             owner_id=_user["sub"],
         )
     except LookupError as exc:
@@ -125,8 +149,7 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if settings.rag_embeddings_enabled:
-        background_tasks.add_task(_embed_chunks_background, record["id"], safe_name, text, chunks)
+    background_tasks.add_task(_ingest_file_background, record["id"], safe_name, raw)
 
     return _public_file(record)
 
