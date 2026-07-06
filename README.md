@@ -6,7 +6,11 @@ Authentication and per-user data isolation are enforced, and all state persists 
 Postgres (with pgvector for embeddings).
 
 ## Features
-- WebSocket streaming chat (`/ws/chat/{session_id}`), JWT-authenticated via `?token=`
+- WebSocket streaming chat (`/ws/chat/{session_id}`), JWT-authenticated via `?token=`,
+  with **stop generation**, **regenerate**, and a per-project **conversation list**
+- **Voice mode**: speech-to-text input and spoken replies (Web Speech API, JARVIS-style)
+- **Custom instructions per project** (ChatGPT/Claude-style), injected as a system message
+- See `docs/FEATURE_PARITY.md` for the ChatGPT / Claude / Grok / JARVIS parity matrix
 - **JWT authentication + RBAC** (owner / admin / user / readonly) enforced on every
   data route; register, login and refresh tokens
 - **Per-user data isolation**: every project, file, artifact, chat and memory is

@@ -16,6 +16,10 @@ import asyncio
 import os
 
 os.environ.setdefault("POSTGRES_HOST", "localhost")
+# The whole suite shares one unauthenticated client identity (ip:testclient);
+# production limits would 429 mid-run, so give tests an effectively unlimited bucket.
+os.environ.setdefault("RATE_LIMIT_CAPACITY", "100000")
+os.environ.setdefault("RATE_LIMIT_REFILL", "100000")
 
 from sqlalchemy import delete, text
 

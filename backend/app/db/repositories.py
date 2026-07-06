@@ -48,6 +48,7 @@ def _project_dict(row: Project) -> dict[str, Any]:
         "owner_id": row.owner_id,
         "name": row.name,
         "description": row.description,
+        "system_prompt": row.system_prompt,
         "created_at": _iso(row.created_at),
     }
 
@@ -176,6 +177,44 @@ class Repository:
             rows = (await session.execute(stmt.order_by(Project.created_at))).scalars().all()
             return [_project_dict(r) for r in rows]
 
+    async def get_project(self, project_id: str, owner_id: str | None = None) -> dict[str, Any] | None:
+        async with SessionLocal() as session:
+            row = (
+                await session.execute(select(Project).where(Project.id == project_id))
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            if owner_id is not None and row.owner_id != owner_id:
+                return None
+            return _project_dict(row)
+
+    async def update_project(
+        self,
+        project_id: str,
+        owner_id: str | None = None,
+        name: str | None = None,
+        description: str | None = None,
+        system_prompt: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Update project fields (only the ones provided). Returns ``None``
+        when the project does not exist or is not owned by ``owner_id``."""
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = (
+                    await session.execute(select(Project).where(Project.id == project_id))
+                ).scalar_one_or_none()
+                if row is None:
+                    return None
+                if owner_id is not None and row.owner_id != owner_id:
+                    return None
+                if name is not None:
+                    row.name = name
+                if description is not None:
+                    row.description = description
+                if system_prompt is not None:
+                    row.system_prompt = system_prompt
+            return _project_dict(row)
+
     # ── Chat history ────────────────────────────────────────────────────────
 
     async def add_chat_message(
@@ -212,6 +251,58 @@ class Repository:
                 stmt = stmt.where(ChatMessage.session_id == session_id)
             rows = (await session.execute(stmt.order_by(ChatMessage.seq))).scalars().all()
             return [_chat_dict(r) for r in rows]
+
+    async def list_chat_sessions(
+        self, project_id: str, owner_id: str | None = None
+    ) -> list[dict[str, Any]] | None:
+        """List a project's chat sessions (ChatGPT-style conversation list),
+        newest-activity first. Each entry: {session_id, preview, message_count,
+        last_at}. Returns ``None`` when ``owner_id`` does not own the project."""
+        async with SessionLocal() as session:
+            if not await self._project_owned(session, project_id, owner_id):
+                return None
+            rows = (
+                await session.execute(
+                    select(ChatMessage)
+                    .where(ChatMessage.project_id == project_id)
+                    .order_by(ChatMessage.seq)
+                )
+            ).scalars().all()
+            sessions: dict[str, dict[str, Any]] = {}
+            for m in rows:
+                entry = sessions.setdefault(
+                    m.session_id,
+                    {"session_id": m.session_id, "preview": "", "message_count": 0, "last_at": None},
+                )
+                entry["message_count"] += 1
+                entry["last_at"] = _iso(m.created_at)
+                if not entry["preview"] and m.role == "user":
+                    entry["preview"] = m.content[:80]
+            ordered = sorted(sessions.values(), key=lambda s: s["last_at"] or "", reverse=True)
+            return ordered
+
+    async def delete_last_assistant_message(
+        self, project_id: str, session_id: str
+    ) -> bool:
+        """Drop the most recent assistant message in a session (regenerate)."""
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = (
+                    await session.execute(
+                        select(ChatMessage)
+                        .where(
+                            ChatMessage.project_id == project_id,
+                            ChatMessage.session_id == session_id,
+                            ChatMessage.role == "assistant",
+                        )
+                        .order_by(ChatMessage.seq.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    return False
+                await session.delete(row)
+                return True
 
     # ── Files & chunks ──────────────────────────────────────────────────────
 

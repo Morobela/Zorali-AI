@@ -44,6 +44,35 @@ def test_rate_limiter_reads_settings():
     assert limiter._refill_rate == settings.rate_limit_refill
 
 
+def test_rate_limiter_returns_429_response_not_500():
+    """When the bucket is empty the middleware must produce a real 429 response.
+
+    HTTPException raised inside middleware bypasses FastAPI's handlers, so the
+    limiter converts it to a JSONResponse itself.
+    """
+    import asyncio
+    from starlette.requests import Request
+    from app.core.rate_limiter import RateLimiter
+
+    limiter = RateLimiter(capacity=1.0, refill_rate=0.0001)
+    scope = {"type": "http", "method": "GET", "path": "/x", "headers": [], "client": ("1.2.3.4", 1)}
+    request = Request(scope)
+
+    async def call_next(_):
+        from starlette.responses import PlainTextResponse
+        return PlainTextResponse("ok")
+
+    async def run():
+        first = await limiter(request, call_next)
+        second = await limiter(request, call_next)
+        return first, second
+
+    first, second = asyncio.run(run())
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "retry-after" in {k.decode().lower() for k, _ in second.raw_headers}
+
+
 def test_extract_text_pdf_uses_pypdf():
     text = extract_text("doc.pdf", _MINIMAL_PDF)
     assert "Hello Zorali PDF extraction works" in text
