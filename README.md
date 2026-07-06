@@ -10,7 +10,8 @@ Postgres (with pgvector for embeddings).
   with **stop generation**, **regenerate**, and a per-project **conversation list**
 - **Voice mode**: speech-to-text input and spoken replies (Web Speech API, JARVIS-style)
 - **Custom instructions per project** (ChatGPT/Claude-style), injected as a system message
-- See `docs/FEATURE_PARITY.md` for the ChatGPT / Claude / Grok / JARVIS parity matrix
+- See `docs/FEATURE_PARITY.md` for the ChatGPT / Claude / Grok / JARVIS parity matrix,
+  and `docs/REVIEW_SCORECARD.md` for the modern-AI requirements scorecard
 - **JWT authentication + RBAC** (owner / admin / user / readonly) enforced on every
   data route; register, login and refresh tokens
 - **Per-user data isolation**: every project, file, artifact, chat and memory is
@@ -22,10 +23,24 @@ Postgres (with pgvector for embeddings).
   - Stage 2: `LexicalFeatureReranker` (IDF-weighted coverage, exact phrase, proximity, bigrams)
   - Optional: dense semantic search via Ollama (`RAG_EMBEDDINGS_ENABLED=true`, Nomic task prefixes),
     fused into the lexical results with weighted RRF
-- Non-blocking file indexing: uploads return immediately with an `indexing_status`
-  (`queued → indexing → ready | failed`) you can poll
+- **Fully asynchronous file ingestion**: uploads return immediately; extraction
+  (pypdf in a worker thread), chunking and embedding all run in a background
+  task with a pollable `indexing_status` (`queued → indexing → ready | failed`)
 - Native **PDF text extraction** via `pypdf`
-- Task-mode commands (`/status`, `/files`, `/search`, `/read`, `/artifact ...`, `/help`)
+- **Graph memory (GraphRAG-style)**: facts are extracted from saved memories as
+  (subject —relation→ object) triples; retrieval matches query entities and
+  expands one hop, and matching facts are injected into the chat prompt
+  (`GET /api/memory/graph`). Optional dense memory embeddings for semantic recall.
+- **Multi-pass Deep Research**: search (Tavily via `TAVILY_API_KEY`, or DuckDuckGo)
+  → fetch and read the top pages → synthesize a source-cited answer with
+  clickable `[W#]` web citations
+- **Sandboxed code execution** (opt-in, `CODE_EXECUTION_ENABLED`): run Python
+  artifacts from the UI (▶ Run), `/run <code>` in task mode, and a
+  `code_execution` agent tool — `python -I` subprocess, clean env, temp cwd, timeout
+- **Vision input**: attach images in the composer; they ride the WebSocket to
+  vision models (llava, qwen-vl, llama3.2-vision via Ollama `images`; OpenAI
+  content-parts on the cloud fallback)
+- Task-mode commands (`/status`, `/files`, `/search`, `/read`, `/artifact ...`, `/run`, `/help`)
 - Artifact create / list / read / update with version history
 - **Token-bucket rate limiting** (per JWT sub, IP fallback), configurable via settings
 - **Prometheus metrics** at `/metrics` (request counter + latency histogram)
@@ -98,14 +113,18 @@ Key `.env` settings (see `.env.example` for the full list):
 - `OLLAMA_HOST`, `OLLAMA_MODEL` — local inference
 - `CLOUD_API_BASE`, `CLOUD_API_KEY`, `CLOUD_MODEL` — optional cloud fallback
 - `RAG_EMBEDDINGS_ENABLED`, `RAG_EMBEDDING_MODEL` — optional dense retrieval
+- `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY`, `DEEP_RESEARCH_MAX_PAGES` — deep research
+- `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off by default)
 
 ## API overview
 - `GET /api/health`, `GET /metrics`
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh`
 - `POST /api/project`, `GET /api/project`, `GET /api/project/{id}/chats`
 - `POST /api/files/upload`, `GET /api/files/list`, `GET /api/files/search`, `GET /api/files/{id}/status`
-- `POST /api/artifacts`, `GET /api/artifacts`, `GET/PUT /api/artifacts/{artifact_id}`
-- `POST /api/memory`, `GET /api/memory/search`, `DELETE /api/memory/{id}`
+- `POST /api/artifacts`, `GET /api/artifacts`, `GET/PUT /api/artifacts/{artifact_id}`,
+  `POST /api/artifacts/{artifact_id}/run` (sandbox, admin + `CODE_EXECUTION_ENABLED`)
+- `POST /api/memory`, `GET /api/memory/search`, `GET /api/memory/semantic-search`,
+  `GET /api/memory/graph`, `DELETE /api/memory/{id}`
 - `WS /ws/chat/{session_id}?token=<jwt>`
 
 ## Security notes
@@ -113,10 +132,14 @@ Key `.env` settings (see `.env.example` for the full list):
 - Per-user isolation: users can only see and mutate their own projects and data.
 - Upload size limit and extension allowlist; path traversal rejected for `project_id`
   and filename; hidden files like `.env` are blocked from upload.
-- Retrieved file context is treated as untrusted evidence in the chat prompt, not as
-  instructions.
+- Retrieved file context and fetched web pages are treated as untrusted evidence in
+  the chat prompt, not as instructions.
 - Token-bucket rate limiting runs before any compute.
 - Dangerous file-write/delete task commands are intentionally not implemented.
+- Code execution is disabled by default and double-gated (deployment setting +
+  admin role). The sandbox is `python -I` in a subprocess with a clean environment,
+  temp working directory and timeout — it is **not** a container and cannot block
+  network or world-readable file access; enable only on trusted deployments.
 
 ## Project structure
 - `backend/app/api`: REST + WS routes
@@ -128,13 +151,19 @@ Key `.env` settings (see `.env.example` for the full list):
 - `tests/backend`: backend test coverage
 
 ## Known limitations
-- Deep Research web search uses a provider interface placeholder unless a real search
-  backend is wired in.
-- Voice and Image inputs are placeholders.
-- Memory search uses hybrid BM25/TF-IDF lexical retrieval with feature reranking;
-  dense embeddings currently cover uploaded file chunks, not memories.
+- Deep Research requires `WEB_SEARCH_ENABLED=true`; without `TAVILY_API_KEY` it
+  falls back to the DuckDuckGo instant-answer API, which is keyless but sparse.
+- Voice uses the browser Web Speech API (Chrome/Edge); a local whisper.cpp + Piper
+  stack for browser-independent duplex voice is on the roadmap.
+- Vision quality depends on the model you pull (`llava`, `qwen2.5-vl`,
+  `llama3.2-vision` via Ollama); text-only models ignore attached images.
+- Graph memory extraction is deterministic (pattern-based) — it favours precision
+  over recall and will not catch every phrasing; unmatched facts still get found
+  by text/semantic search.
+- The code sandbox is process isolation, not a container (see Security notes).
 
 ## Roadmap
-1. Dense embeddings for memories (not just file chunks).
-2. Artifact side-panel editing UX.
-3. Richer CI and e2e tests including retrieval quality metrics (Recall@5, MRR).
+1. Automatic memory extraction from conversations (with a review UI).
+2. Artifact side-panel live preview/rendering.
+3. Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
+4. Richer CI and e2e tests including retrieval quality metrics (Recall@5, MRR).

@@ -147,6 +147,35 @@ class Memory(Base):
     # JWT sub of the owning account (or a caller-supplied id, e.g. "local").
     owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Optional dense vector for semantic recall (mirrors Chunk.embedding);
+    # NULL for memories saved while RAG_EMBEDDINGS_ENABLED was off.
+    embedding = mapped_column(Vector(), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+
+class MemoryTriple(Base):
+    """A (subject, relation, object) fact extracted from a saved memory.
+
+    Graph memory: instead of only retrieving memories whose *text* resembles
+    the query, triples let retrieval follow relationships between entities
+    ("charles —works_at→ acme", "acme —uses→ python") one hop out.
+    Triples are deleted with their source memory (FK cascade).
+    """
+
+    __tablename__ = "memory_triples"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    memory_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("memories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    relation: Mapped[str] = mapped_column(String(64), nullable=False)
+    object: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )

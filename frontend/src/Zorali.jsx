@@ -113,6 +113,8 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
   const isUser = message.role === 'user'
   const content = message.content || ''
   const citations = message.citations || []
+  const webCitations = message.web_citations || []
+  const images = message.images || []
   const [copied, setCopied] = useState(false)
 
   const copyMessage = () => {
@@ -125,6 +127,13 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
   return (
     <div className={`message ${message.role}`}>
       <div className="bubble">
+        {images.length > 0 && (
+          <div className="msg-images" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+            {images.map((src, i) => (
+              <img key={i} src={src} alt="attachment" style={{ maxWidth: 160, maxHeight: 120, borderRadius: 8 }} />
+            ))}
+          </div>
+        )}
         {isUser
           ? <div className="bubble-text"><p>{content}{message.streaming && <span className="stream-cursor" />}</p></div>
           : <div className="bubble-text">
@@ -138,6 +147,15 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
               <span key={i} className="citation-chip" title={`Score: ${c.score}`}>
                 📄 {c.filename}#{c.chunk_id}
               </span>
+            ))}
+          </div>
+        )}
+        {webCitations.length > 0 && (
+          <div className="citations">
+            {webCitations.map((c, i) => (
+              <a key={i} className="citation-chip" href={c.url} target="_blank" rel="noopener noreferrer" title={c.url}>
+                🌐 [{c.marker}] {(c.title || c.url).slice(0, 48)}
+              </a>
             ))}
           </div>
         )}
@@ -270,6 +288,10 @@ export default function Zorali() {
   // File attachments
   const fileInputRef = useRef(null)
   const [attachedFiles, setAttachedFiles] = useState([]) // {name, id} after upload
+
+  // Image attachments for vision models (sent with the next message)
+  const imageInputRef = useRef(null)
+  const [attachedImages, setAttachedImages] = useState([]) // {name, data: dataURL}
 
   // Right panel state: null | 'status' | 'deepSearch' | 'artifacts' | 'memory'
   const [panel, setPanel] = useState(null)
@@ -447,6 +469,7 @@ export default function Zorali() {
                     citation_count: (msg.citations || []).length,
                   },
                   citations: msg.citations || [],
+                  web_citations: msg.web_citations || [],
                 }
               : m
           ))
@@ -493,9 +516,10 @@ export default function Zorali() {
     if (!text) return
     setInput('')
     window.speechSynthesis?.cancel()
+    const images = regenerate ? [] : attachedImages
     setMessages(prev => [
       ...prev,
-      ...(regenerate ? [] : [{ role: 'user', content: text }]),
+      ...(regenerate ? [] : [{ role: 'user', content: text, images: images.map(i => i.data) }]),
       { role: 'assistant', content: '', streaming: true },
     ])
     socketRef.current?.send({
@@ -505,9 +529,13 @@ export default function Zorali() {
       model: selectedModel,
       local_first: localFirst,
       deep_research: deepResearch,
-      attachments: attachedFiles,
+      attachments: [
+        ...attachedFiles,
+        ...images.map(i => ({ type: 'image', name: i.name, data: i.data })),
+      ],
       regenerate,
     })
+    if (images.length) setAttachedImages([])
   }
 
   function stopGeneration() {
@@ -585,6 +613,24 @@ export default function Zorali() {
     } catch {
       setAttachedFiles(prev => prev.filter(f => f.id !== fileId))
     }
+  }
+
+  // ── Image attach (vision) ────────────────────────────────────────────────
+  function handleImageSelect(e) {
+    const files = Array.from(e.target.files || [])
+    for (const file of files.slice(0, 4)) {
+      if (file.size > 5 * 1024 * 1024) {
+        showToast(`${file.name} is too large (max 5 MB)`, 'error')
+        continue
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        setAttachedImages(prev => [...prev, { name: file.name, data: reader.result }])
+        showToast(`🖼 ${file.name} attached — sent with your next message`, 'success')
+      }
+      reader.readAsDataURL(file)
+    }
+    e.target.value = ''
   }
 
   // ── Panel actions ─────────────────────────────────────────────────────────
@@ -665,6 +711,20 @@ export default function Zorali() {
       loadArtifacts()
     } catch (e) {
       showToast(`Failed: ${e.message}`, 'error')
+    }
+  }
+
+  async function runArtifact(artifactId) {
+    try {
+      const result = await apiPost(`/api/artifacts/${artifactId}/run`, {})
+      const text = [
+        `exit=${result.returncode}`,
+        result.stdout && `stdout:\n${result.stdout}`,
+        result.stderr && `stderr:\n${result.stderr}`,
+      ].filter(Boolean).join('\n')
+      setPanelData(prev => ({ ...prev, runOutput: { artifactId, text } }))
+    } catch (e) {
+      showToast(`Run failed: ${e.message}`, 'error')
     }
   }
 
@@ -851,7 +911,7 @@ export default function Zorali() {
               onClick={toggleSpeakReplies}
               title="Read replies aloud"
             >{speakReplies ? '🔊 Speaking on' : '🔈 Speak replies'}</button>
-            <button className="toolbar-btn" onClick={() => showToast('Image generation coming soon!', 'info')}>🎨 Image</button>
+            <button className="toolbar-btn" onClick={() => imageInputRef.current?.click()} title="Attach an image (vision models)">🖼 Image</button>
             <button className="toolbar-btn" onClick={() => setMode('task')}>💻 Code</button>
             <input
               ref={fileInputRef}
@@ -861,14 +921,28 @@ export default function Zorali() {
               accept=".txt,.md,.json,.csv,.py,.js,.ts,.jsx,.tsx,.html,.css,.toml,.yaml,.yml,.xml,.sh,.pdf"
               onChange={handleFileSelect}
             />
+            <input
+              ref={imageInputRef}
+              type="file"
+              style={{ display: 'none' }}
+              multiple
+              accept="image/*"
+              onChange={handleImageSelect}
+            />
           </div>
 
-          {attachedFiles.length > 0 && (
+          {(attachedFiles.length > 0 || attachedImages.length > 0) && (
             <div className="file-pills">
               {attachedFiles.map(f => (
                 <span key={f.id} className="file-pill">
                   📄 {f.name}
                   <button onClick={() => removeAttachedFile(f.id, f.name)} title="Remove">✕</button>
+                </span>
+              ))}
+              {attachedImages.map((img, i) => (
+                <span key={`img-${i}`} className="file-pill">
+                  🖼 {img.name}
+                  <button onClick={() => setAttachedImages(prev => prev.filter((_, j) => j !== i))} title="Remove">✕</button>
                 </span>
               ))}
             </div>
@@ -982,9 +1056,19 @@ export default function Zorali() {
                               value={panelData.editContent}
                               onChange={e => setPanelData(prev => ({ ...prev, editContent: e.target.value }))}
                             />
-                            <button className="artifact-save-btn" onClick={() => saveArtifact(a.id, panelData.editContent)}>
-                              Save
-                            </button>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button className="artifact-save-btn" onClick={() => saveArtifact(a.id, panelData.editContent)}>
+                                Save
+                              </button>
+                              <button className="artifact-save-btn" onClick={() => runArtifact(a.id)} title="Run latest saved version in the Python sandbox (requires CODE_EXECUTION_ENABLED)">
+                                ▶ Run
+                              </button>
+                            </div>
+                            {panelData.runOutput?.artifactId === a.id && (
+                              <pre className="status-pre" style={{ maxHeight: 180, overflow: 'auto' }}>
+                                {panelData.runOutput.text}
+                              </pre>
+                            )}
                           </div>
                         )}
                       </div>
