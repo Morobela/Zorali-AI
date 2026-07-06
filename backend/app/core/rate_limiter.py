@@ -70,7 +70,18 @@ class RateLimiter:
             )
 
     async def __call__(self, request: Request, call_next):
-        await self.check(request)
+        try:
+            await self.check(request)
+        except HTTPException as exc:
+            # HTTPException raised inside middleware bypasses FastAPI's
+            # exception handlers (they live below middleware in the stack) and
+            # would surface as a 500 — return the 429 response directly.
+            from starlette.responses import JSONResponse
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=exc.headers or {},
+            )
         return await call_next(request)
 
 

@@ -849,3 +849,47 @@ textarea { resize: vertical; }
 
 .splash-link:hover { color: #fff; }
 .splash-link-dim { color: rgba(255, 255, 255, 0.4); margin-top: 4px; }
+
+/* ───── Assistant parity: message actions, stop button, project gear ───── */
+.msg-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.msg-action-btn {
+  border: 1px solid var(--zorali-border);
+  background: var(--zorali-white);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--zorali-muted);
+  cursor: pointer;
+}
+
+.msg-action-btn:hover { color: var(--zorali-ink); border-color: var(--zorali-green); }
+
+.send-btn.stop {
+  background: #b91c1c;
+  color: #fff;
+}
+
+.project-item { display: flex; align-items: center; justify-content: space-between; }
+.project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.project-gear {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  opacity: 0.65;
+  padding: 0 2px;
+}
+
+.project-gear:hover { opacity: 1; }
+
+.recent-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -109,10 +109,18 @@ function CodeBlock({ lang, code }) {
 }
 
 // ─── Message component ─────────────────────────────────────────────────────────
-function Message({ message }) {
+function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
   const isUser = message.role === 'user'
   const content = message.content || ''
   const citations = message.citations || []
+  const [copied, setCopied] = useState(false)
+
+  const copyMessage = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
 
   return (
     <div className={`message ${message.role}`}>
@@ -134,6 +142,23 @@ function Message({ message }) {
           </div>
         )}
       </div>
+      {!isUser && !message.streaming && content && (
+        <div className="msg-actions">
+          <button className="msg-action-btn" onClick={copyMessage} title="Copy message">
+            {copied ? '✓ Copied' : '⎘ Copy'}
+          </button>
+          {onSpeak && (
+            <button className="msg-action-btn" onClick={() => onSpeak(content)} title="Read aloud">
+              🔊 Speak
+            </button>
+          )}
+          {canRegenerate && (
+            <button className="msg-action-btn" onClick={onRegenerate} title="Regenerate response">
+              ↻ Regenerate
+            </button>
+          )}
+        </div>
+      )}
       {message.meta && !isUser && (
         <div className="msg-meta">
           {message.meta.provider && <span>{message.meta.provider}</span>}
@@ -182,6 +207,34 @@ function NewProjectModal({ onConfirm, onCancel }) {
   )
 }
 
+// ─── Project Settings Modal (custom instructions) ──────────────────────────────
+function ProjectSettingsModal({ project, onSave, onCancel }) {
+  const [instructions, setInstructions] = useState(project.system_prompt || '')
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <h3>{project.name} — Custom instructions</h3>
+        <p style={{ fontSize: 12, color: 'var(--zorali-muted)' }}>
+          Zorali follows these instructions in every chat inside this project
+          (tone, format, persona, house rules).
+        </p>
+        <textarea
+          className="modal-input"
+          style={{ minHeight: 120, resize: 'vertical' }}
+          placeholder="e.g. Answer concisely. We build a FastAPI + React app. Address me as Commander."
+          value={instructions}
+          autoFocus
+          onChange={e => setInstructions(e.target.value)}
+        />
+        <div className="modal-actions">
+          <button className="modal-cancel" onClick={onCancel}>Cancel</button>
+          <button className="modal-confirm" onClick={() => onSave(instructions)}>Save</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main App ──────────────────────────────────────────────────────────────────
 export default function Zorali() {
   // Chat state
@@ -190,18 +243,29 @@ export default function Zorali() {
   const [connected, setConnected] = useState(false)
   const [mode, setMode] = useState('chat')
   const [selectedModel, setSelectedModel] = useState('llama3.2:1b')
+  const [availableModels, setAvailableModels] = useState(['llama3.2:1b'])
   const [localFirst, setLocalFirst] = useState(true)
   const [deepResearch, setDeepResearch] = useState(false)
   const [ollamaOk, setOllamaOk] = useState(null)
   const [providerStatus, setProviderStatus] = useState(null)
   const socketRef = useRef(null)
-  const sessionId = useRef(crypto.randomUUID())
+  // Conversation (session) management — ChatGPT-style history in the sidebar
+  const [sessionKey, setSessionKey] = useState(() => crypto.randomUUID())
+  const [sessions, setSessions] = useState([])
   const bottomRef = useRef(null)
+  const isStreaming = messages[messages.length - 1]?.streaming === true
+
+  // Voice mode (JARVIS): speech-to-text input + optional spoken replies
+  const [listening, setListening] = useState(false)
+  const [speakReplies, setSpeakReplies] = useState(false)
+  const speakRepliesRef = useRef(false)
+  const recognitionRef = useRef(null)
 
   // Projects (loaded from API)
   const [projects, setProjects] = useState([])
   const [activeProjectId, setActiveProjectId] = useState('default')
   const [showNewProject, setShowNewProject] = useState(false)
+  const [settingsProject, setSettingsProject] = useState(null)
 
   // File attachments
   const fileInputRef = useRef(null)
@@ -246,13 +310,112 @@ export default function Zorali() {
   }, [])
 
   useEffect(() => {
-    apiGet('/api/ollama/health').then(r => setOllamaOk(!!r.ok)).catch(() => setOllamaOk(false))
+    apiGet('/api/ollama/health')
+      .then(r => {
+        setOllamaOk(!!r.ok)
+        // Populate the model picker from what is actually installed in Ollama.
+        if (Array.isArray(r.models) && r.models.length > 0) {
+          setAvailableModels(r.models)
+          if (!r.models.includes('llama3.2:1b')) setSelectedModel(r.models[0])
+        }
+      })
+      .catch(() => setOllamaOk(false))
     apiGet('/api/providers/status').then(setProviderStatus).catch(() => {})
   }, [])
 
-  // ── WebSocket ──────────────────────────────────────────────────────────────
+  // ── Conversation list ─────────────────────────────────────────────────────
+  const loadSessions = useCallback(() => {
+    if (!activeProjectId || activeProjectId === 'default') return
+    apiGet(`/api/project/${activeProjectId}/sessions`)
+      .then(setSessions)
+      .catch(() => setSessions([]))
+  }, [activeProjectId])
+
+  useEffect(() => { loadSessions() }, [loadSessions])
+
+  async function openSession(sid) {
+    if (sid === sessionKey) return
+    try {
+      const history = await apiGet(`/api/project/${activeProjectId}/chats?session_id=${encodeURIComponent(sid)}`)
+      setMessages(history.map(m => ({
+        role: m.role,
+        content: m.content,
+        citations: m.citations || [],
+        streaming: false,
+      })))
+      setSessionKey(sid)
+    } catch (e) {
+      showToast(`Could not open conversation: ${e.message}`, 'error')
+    }
+  }
+
+  function newChat() {
+    setSessionKey(crypto.randomUUID())
+    setMessages([])
+  }
+
+  // ── Voice mode (Web Speech API) ───────────────────────────────────────────
+  function speak(text) {
+    if (!('speechSynthesis' in window)) return
+    // Strip code fences and markdown decorations before speaking.
+    const spoken = text
+      .replace(/```[\s\S]*?```/g, ' Code block omitted. ')
+      .replace(/[`*_#>]/g, '')
+      .slice(0, 1200)
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(spoken))
+  }
+
+  function toggleVoiceInput() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      showToast('Voice input is not supported in this browser (try Chrome/Edge).', 'error')
+      return
+    }
+    if (listening) {
+      recognitionRef.current?.stop()
+      return
+    }
+    const rec = new SR()
+    rec.interimResults = true
+    rec.continuous = false
+    let finalTranscript = ''
+    rec.onresult = (event) => {
+      let interim = ''
+      for (const res of event.results) {
+        if (res.isFinal) finalTranscript += res[0].transcript
+        else interim += res[0].transcript
+      }
+      setInput(finalTranscript + interim)
+    }
+    rec.onend = () => {
+      setListening(false)
+      recognitionRef.current = null
+      const text = finalTranscript.trim()
+      if (text) send(text)
+    }
+    rec.onerror = (event) => {
+      setListening(false)
+      recognitionRef.current = null
+      if (event.error !== 'aborted') showToast(`Voice input error: ${event.error}`, 'error')
+    }
+    recognitionRef.current = rec
+    setListening(true)
+    window.speechSynthesis?.cancel()
+    rec.start()
+  }
+
+  function toggleSpeakReplies() {
+    setSpeakReplies(v => {
+      speakRepliesRef.current = !v
+      if (v) window.speechSynthesis?.cancel()
+      return !v
+    })
+  }
+
+  // ── WebSocket (one connection per conversation) ───────────────────────────
   useEffect(() => {
-    const socket = createZoraliSocket(sessionId.current, {
+    const socket = createZoraliSocket(sessionKey, {
       onOpen: () => setConnected(true),
       onClose: (event) => {
         setConnected(false)
@@ -277,6 +440,7 @@ export default function Zorali() {
               ? {
                   ...m,
                   streaming: false,
+                  stopped: !!msg.stopped,
                   meta: {
                     latency_ms: msg.latency_ms,
                     provider: msg.provider,
@@ -286,6 +450,14 @@ export default function Zorali() {
                 }
               : m
           ))
+          if (speakRepliesRef.current && !msg.stopped) {
+            setMessages(prev => {
+              const last = prev[prev.length - 1]
+              if (last?.role === 'assistant' && last.content) speak(last.content)
+              return prev
+            })
+          }
+          loadSessions()
         }
         if (msg.type === 'status') {
           setPanelData(msg.data)
@@ -308,21 +480,22 @@ export default function Zorali() {
     })
     socketRef.current = socket
     return () => socket.close()
-  }, [])
+  }, [sessionKey, loadSessions])
 
   // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Send message ──────────────────────────────────────────────────────────
-  function send(customText) {
+  // ── Send / stop / regenerate ──────────────────────────────────────────────
+  function send(customText, { regenerate = false } = {}) {
     const text = (customText || input).trim()
     if (!text) return
     setInput('')
+    window.speechSynthesis?.cancel()
     setMessages(prev => [
       ...prev,
-      { role: 'user', content: text },
+      ...(regenerate ? [] : [{ role: 'user', content: text }]),
       { role: 'assistant', content: '', streaming: true },
     ])
     socketRef.current?.send({
@@ -333,7 +506,24 @@ export default function Zorali() {
       local_first: localFirst,
       deep_research: deepResearch,
       attachments: attachedFiles,
+      regenerate,
     })
+  }
+
+  function stopGeneration() {
+    socketRef.current?.send({ mode: 'stop' })
+  }
+
+  function regenerate() {
+    const lastUser = [...messages].reverse().find(m => m.role === 'user')
+    if (!lastUser) return
+    // Drop the trailing assistant answer locally; the backend drops its copy.
+    setMessages(prev => {
+      const copy = [...prev]
+      if (copy[copy.length - 1]?.role === 'assistant') copy.pop()
+      return copy
+    })
+    send(lastUser.content, { regenerate: true })
   }
 
   // ── Project actions ───────────────────────────────────────────────────────
@@ -342,10 +532,28 @@ export default function Zorali() {
     try {
       const project = await apiPost('/api/project', { name, description: '' })
       setProjects(prev => [...prev, project])
-      setActiveProjectId(project.id)
+      switchProject(project.id)
       showToast(`Project "${name}" created!`, 'success')
     } catch (e) {
       showToast(`Failed to create project: ${e.message}`, 'error')
+    }
+  }
+
+  function switchProject(projectId) {
+    if (projectId === activeProjectId) return
+    setActiveProjectId(projectId)
+    newChat()
+  }
+
+  async function saveProjectInstructions(instructions) {
+    const project = settingsProject
+    setSettingsProject(null)
+    try {
+      const updated = await apiPatch(`/api/project/${project.id}`, { system_prompt: instructions })
+      setProjects(prev => prev.map(p => (p.id === updated.id ? updated : p)))
+      showToast('Custom instructions saved', 'success')
+    } catch (e) {
+      showToast(`Failed to save instructions: ${e.message}`, 'error')
     }
   }
 
@@ -473,7 +681,7 @@ export default function Zorali() {
           </div>
         </div>
 
-        <button className="new-chat" onClick={() => setMessages([])}>+ New chat</button>
+        <button className="new-chat" onClick={newChat}>+ New chat</button>
         <input className="sidebar-search" placeholder="Search chats…" />
 
         <section>
@@ -485,18 +693,35 @@ export default function Zorali() {
             <div
               key={p.id}
               className={`project-item${p.id === activeProjectId ? ' active' : ''}`}
-              onClick={() => setActiveProjectId(p.id)}
+              onClick={() => switchProject(p.id)}
             >
-              ▣ {p.name}
+              <span className="project-name">▣ {p.name}</span>
+              {p.id === activeProjectId && (
+                <button
+                  className="project-gear"
+                  title="Custom instructions"
+                  onClick={e => { e.stopPropagation(); setSettingsProject(p) }}
+                >⚙</button>
+              )}
             </div>
           ))}
         </section>
 
         <section>
           <div className="section-title">Recent</div>
-          <div className="recent-item active">Zorali build</div>
-          <div className="recent-item">Website deployment</div>
-          <div className="recent-item">Research notes</div>
+          {sessions.length === 0 && (
+            <div className="recent-item" style={{ opacity: 0.55, cursor: 'default' }}>No conversations yet</div>
+          )}
+          {sessions.slice(0, 12).map(s => (
+            <div
+              key={s.session_id}
+              className={`recent-item${s.session_id === sessionKey ? ' active' : ''}`}
+              title={s.preview}
+              onClick={() => openSession(s.session_id)}
+            >
+              {s.preview || 'New conversation'}
+            </div>
+          ))}
         </section>
 
         <div className="sidebar-bottom">
@@ -537,7 +762,9 @@ export default function Zorali() {
 
         <div className="connector-bar">
           <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="conn-btn connected">
-            <option value="llama3.2:1b">llama3.2:1b (Local)</option>
+            {availableModels.map(m => (
+              <option key={m} value={m}>{m} (Local)</option>
+            ))}
             <option value="gpt-4o-mini">gpt-4o-mini (Cloud)</option>
           </select>
           <button className={`conn-btn${localFirst ? ' connected' : ''}`} onClick={() => setLocalFirst(v => !v)}>
@@ -579,16 +806,28 @@ export default function Zorali() {
               <p>Choose a starter or ask anything about your project.</p>
               <div className="cards">
                 {SUGGESTIONS.map(([icon, title, prompt]) => (
-                  <button key={title} className="card-btn" onClick={() => send(prompt)}>
+                  <button
+                    key={title}
+                    className="card-btn"
+                    onClick={() => (title === 'Voice mode' ? toggleVoiceInput() : send(prompt))}
+                  >
                     <span className="card-icon">{icon}</span>
                     <strong>{title}</strong>
-                    <small>{prompt}</small>
+                    <small>{title === 'Voice mode' ? 'Speak to Zorali (mic)' : prompt}</small>
                   </button>
                 ))}
               </div>
             </div>
           )}
-          {messages.map((m, i) => <Message key={i} message={m} />)}
+          {messages.map((m, i) => (
+            <Message
+              key={i}
+              message={m}
+              canRegenerate={!isStreaming && i === messages.length - 1 && m.role === 'assistant'}
+              onRegenerate={regenerate}
+              onSpeak={'speechSynthesis' in window ? speak : null}
+            />
+          ))}
           <div ref={bottomRef} />
         </section>
 
@@ -602,7 +841,16 @@ export default function Zorali() {
               >{x}</button>
             ))}
             <button className="toolbar-btn" onClick={() => fileInputRef.current?.click()}>📎 Attach</button>
-            <button className="toolbar-btn" onClick={() => showToast('Voice mode coming soon!', 'info')}>🎙 Voice</button>
+            <button
+              className={`toolbar-btn${listening ? ' mode-active' : ''}`}
+              onClick={toggleVoiceInput}
+              title="Voice input (speech-to-text)"
+            >{listening ? '🔴 Listening…' : '🎙 Voice'}</button>
+            <button
+              className={`toolbar-btn${speakReplies ? ' mode-active' : ''}`}
+              onClick={toggleSpeakReplies}
+              title="Read replies aloud"
+            >{speakReplies ? '🔊 Speaking on' : '🔈 Speak replies'}</button>
             <button className="toolbar-btn" onClick={() => showToast('Image generation coming soon!', 'info')}>🎨 Image</button>
             <button className="toolbar-btn" onClick={() => setMode('task')}>💻 Code</button>
             <input
@@ -632,11 +880,14 @@ export default function Zorali() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isStreaming) send() }
               }}
-              placeholder="Message Zorali…"
+              placeholder={listening ? 'Listening… speak now' : 'Message Zorali…'}
             />
-            <button className="send-btn" onClick={() => send()} disabled={!input.trim()}>Send</button>
+            {isStreaming
+              ? <button className="send-btn stop" onClick={stopGeneration}>⏹ Stop</button>
+              : <button className="send-btn" onClick={() => send()} disabled={!input.trim()}>Send</button>
+            }
           </div>
         </footer>
       </main>
@@ -751,6 +1002,13 @@ export default function Zorali() {
         <NewProjectModal
           onConfirm={handleAddProject}
           onCancel={() => setShowNewProject(false)}
+        />
+      )}
+      {settingsProject && (
+        <ProjectSettingsModal
+          project={settingsProject}
+          onSave={saveProjectInstructions}
+          onCancel={() => setSettingsProject(null)}
         />
       )}
       <Toast toasts={toasts} />

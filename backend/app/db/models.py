@@ -64,6 +64,9 @@ class Project(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Per-project custom instructions injected as a system message in chat
+    # (ChatGPT custom instructions / Claude project instructions parity).
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
