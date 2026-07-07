@@ -60,6 +60,10 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Published for host-side tests (dev only) — the WS ticket store needs a
+    # reachable Redis. The prod compose keeps Redis internal-only.
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
 

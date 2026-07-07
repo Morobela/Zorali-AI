@@ -67,7 +67,7 @@ async def test_graph_agent_runs_end_to_end(monkeypatch):
 
     from app.agents.graph import GraphAgent
     agent = GraphAgent()
-    result = await agent.run("say hello")
+    result = await agent.run("say hello", caller="test-user")
 
     assert result["agent"] == "graph"
     assert isinstance(result["messages"], list)
@@ -88,6 +88,7 @@ async def test_invalid_tool_input_stored_in_state_errors():
     from app.agents.state import new_state
 
     state = new_state()
+    state["caller"] = "test-user"
     # calculator expects {"expression": str} — supplying wrong key
     state["tool_calls"] = [
         {"name": "calculator", "inputs": {"wrong_key": "oops"}, "call_id": "t1"}
@@ -126,6 +127,7 @@ async def test_tool_exception_does_not_crash_graph():
     )
 
     state = new_state()
+    state["caller"] = "test-user"
     state["tool_calls"] = [
         {"name": boom_name, "inputs": {"x": "trigger"}, "call_id": "t2"}
     ]
@@ -150,7 +152,7 @@ async def test_orchestrator_routes_graph_mode(monkeypatch):
     monkeypatch.setattr(pr_module.router, "stream_chat", _fake_stream)
 
     from app.agents.orchestrator import route_agent
-    result = await route_agent("graph", "hello from graph mode", {"project_id": "default"})
+    result = await route_agent("graph", "hello from graph mode", {"project_id": "default", "owner_id": "test-user"})
 
     assert result.get("agent") == "graph"
     assert "messages" in result
@@ -166,7 +168,7 @@ async def test_orchestrator_routes_tools_mode(monkeypatch):
     monkeypatch.setattr(pr_module.router, "stream_chat", _fake_stream)
 
     from app.agents.orchestrator import route_agent
-    result = await route_agent("tools", "use a tool please", {"project_id": "default"})
+    result = await route_agent("tools", "use a tool please", {"project_id": "default", "owner_id": "test-user"})
 
     assert result.get("agent") == "graph"
 

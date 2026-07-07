@@ -12,7 +12,10 @@ async def _rag_retrieve(inputs: dict) -> dict:
     from app.memory.retrieval import hybrid_retriever
     project_id = inputs.get("project_id", "default")
     message = inputs.get("message", "")
-    hits = await hybrid_retriever.retrieve(message, top_k=3, project_id=project_id)
+    # Chain inputs must state who the chain runs for (user id or SYSTEM).
+    hits = await hybrid_retriever.retrieve(
+        message, top_k=3, project_id=project_id, owner_id=inputs["owner_id"]
+    ) or []
     return {**inputs, "retrieved_chunks": hits}
 
 
@@ -30,7 +33,9 @@ async def _route_agent(inputs: dict) -> dict:
         inputs.get("mode", "chat"),
         inputs.get("message", ""),
         {"project_id": inputs.get("project_id", "default"),
-         "attachments": inputs.get("attachments", [])},
+         "attachments": inputs.get("attachments", []),
+         "owner_id": inputs["owner_id"],
+         "role": inputs.get("role", "user")},
     )
     return {**inputs, "agent_plan": plan}
 

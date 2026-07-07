@@ -9,6 +9,7 @@ from __future__ import annotations
 from app.agents.types import AgentState
 from app.agents.state import new_state
 from app.agents.nodes import llm_node, tool_executor_node
+from app.core.caller import Caller
 
 # The complete set of valid routing targets.
 _VALID_NODES = {"llm", "tools", "end"}
@@ -46,11 +47,22 @@ class GraphAgent:
             "tools": tool_executor_node.run,
         }
 
-    async def run(self, task: str, messages: list[dict] | None = None) -> dict:
+    async def run(
+        self,
+        task: str,
+        messages: list[dict] | None = None,
+        *,
+        caller: Caller,
+        caller_role: str = "user",
+    ) -> dict:
         if self._DISPATCH is None:
             self.__class__._DISPATCH = self._build_dispatch()
 
         state = new_state(messages or [{"role": "user", "content": task}])
+        # Caller context rides in the state so the tool-executor node can pass
+        # it to registry.execute — tools are always invoked on someone's behalf.
+        state["caller"] = caller
+        state["caller_role"] = caller_role
 
         visited: list[str] = []
         max_steps = (state["max_retries"] + 1) * 4   # hard ceiling

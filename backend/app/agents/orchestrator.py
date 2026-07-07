@@ -27,7 +27,12 @@ async def route_agent(mode: str, message: str, context: dict) -> dict:
         if mode in ("graph", "tools"):
             history = context.get("history", [])
             messages = history + [{"role": "user", "content": message}]
-            return await _graph_agent.run(message, messages=messages)
+            return await _graph_agent.run(
+                message,
+                messages=messages,
+                caller=context["owner_id"],
+                caller_role=context.get("role", "user"),
+            )
         if mode == "deep_research":
             return await run_deep_research(message, context)
         if mode == "code":

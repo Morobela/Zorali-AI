@@ -6,12 +6,10 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.auth import create_access_token
 from app.db.repositories import repo
+from conftest import ws_ticket
 
 client = TestClient(app)
-
-_WS_TOKEN = create_access_token("test-user", "owner")
 
 
 def _project(name):
@@ -24,9 +22,9 @@ def test_project_sessions_lists_conversations_newest_first():
     p = _project("sessions-proj")
     pid = p["id"]
     s1, s2 = f"s1-{uuid4().hex[:6]}", f"s2-{uuid4().hex[:6]}"
-    asyncio.run(repo.add_chat_message(pid, s1, "user", "first conversation opener"))
-    asyncio.run(repo.add_chat_message(pid, s1, "assistant", "reply one"))
-    asyncio.run(repo.add_chat_message(pid, s2, "user", "second conversation opener"))
+    asyncio.run(repo.add_chat_message(pid, s1, "user", "first conversation opener", owner_id="test-user"))
+    asyncio.run(repo.add_chat_message(pid, s1, "assistant", "reply one", owner_id="test-user"))
+    asyncio.run(repo.add_chat_message(pid, s2, "user", "second conversation opener", owner_id="test-user"))
 
     rows = client.get(f"/api/project/{pid}/sessions").json()
     assert [r["session_id"] for r in rows] == [s2, s1]
@@ -79,7 +77,7 @@ def test_custom_instructions_are_threaded_into_prompt(monkeypatch):
     p = _project("instructions-chat")
     client.patch(f"/api/project/{p['id']}", json={"system_prompt": "Respond like a pirate."})
 
-    with client.websocket_connect(f"/ws/chat/instr-{uuid4().hex[:6]}?token={_WS_TOKEN}") as ws:
+    with client.websocket_connect(f"/ws/chat/instr-{uuid4().hex[:6]}?ticket={ws_ticket(client)}") as ws:
         ws.send_json({"mode": "chat", "project_id": p["id"], "message": "hello"})
         while ws.receive_json().get("type") != "done":
             pass
@@ -101,7 +99,7 @@ def test_regenerate_replaces_last_assistant_message(monkeypatch):
     p = _project("regen-proj")
     session = f"regen-{uuid4().hex[:6]}"
 
-    with client.websocket_connect(f"/ws/chat/{session}?token={_WS_TOKEN}") as ws:
+    with client.websocket_connect(f"/ws/chat/{session}?ticket={ws_ticket(client)}") as ws:
         ws.send_json({"mode": "chat", "project_id": p["id"], "message": "tell me a joke"})
         while ws.receive_json().get("type") != "done":
             pass
@@ -128,7 +126,7 @@ def test_stop_interrupts_streaming(monkeypatch):
     p = _project("stop-proj")
     session = f"stop-{uuid4().hex[:6]}"
 
-    with client.websocket_connect(f"/ws/chat/{session}?token={_WS_TOKEN}") as ws:
+    with client.websocket_connect(f"/ws/chat/{session}?ticket={ws_ticket(client)}") as ws:
         ws.send_json({"mode": "chat", "project_id": p["id"], "message": "long story please"})
         first = ws.receive_json()
         assert first["type"] == "token"
@@ -158,7 +156,7 @@ def test_stop_interrupts_streaming(monkeypatch):
 
 
 def test_stop_with_nothing_streaming_is_harmless():
-    with client.websocket_connect(f"/ws/chat/idle-{uuid4().hex[:6]}?token={_WS_TOKEN}") as ws:
+    with client.websocket_connect(f"/ws/chat/idle-{uuid4().hex[:6]}?ticket={ws_ticket(client)}") as ws:
         ws.send_json({"mode": "stop"})
         ws.send_json({"mode": "task", "project_id": "default", "message": "/help"})
         msg = ws.receive_json()

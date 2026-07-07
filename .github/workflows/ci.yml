@@ -17,6 +17,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,6 +43,7 @@ jobs:
         env:
           ZORALI_DATA_DIR: ${{ runner.temp }}/zorali-data
           POSTGRES_HOST: localhost
+          REDIS_URL: redis://localhost:6379/0
         run: PYTHONPATH=backend pytest tests/backend -q
       - uses: actions/setup-node@v4
         with:

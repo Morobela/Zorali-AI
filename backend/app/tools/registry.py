@@ -5,6 +5,7 @@ from typing import Any, Callable
 from pydantic import BaseModel
 import ast
 import operator as op
+from app.core.caller import Caller
 from app.tools.file_tools import read_file, write_file
 from app.core.audit import audit, AuditEvent
 from app.core.hooks import global_hooks
@@ -18,6 +19,9 @@ class ToolSpec(BaseModel):
     tags: list[str] = []
     requires_role: str = "user"
     approval_required: bool = False
+    # Tools that touch per-user data declare needs_caller=True; the registry
+    # then passes the caller context as the handler's second argument.
+    needs_caller: bool = False
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -43,7 +47,15 @@ class ToolRegistry:
     def get_tools(self) -> list[ToolSpec]:
         return list(self._tools.values())
 
-    async def execute(self, name: str, inputs: dict[str, Any], actor: str = "system", actor_role: str = "user") -> dict[str, Any]:
+    async def execute(
+        self,
+        name: str,
+        inputs: dict[str, Any],
+        actor: str = "system",
+        actor_role: str = "user",
+        *,
+        caller: Caller,
+    ) -> dict[str, Any]:
         spec = self.get(name)
 
         # Enforce role requirement
@@ -59,7 +71,7 @@ class ToolRegistry:
             raise PermissionError(f"Tool '{name}' requires explicit user approval before execution")
 
         async def _run():
-            result = spec.handler(inputs)
+            result = spec.handler(inputs, caller) if spec.needs_caller else spec.handler(inputs)
             # Await if the handler returned a coroutine (async handlers wrapped in sync lambdas)
             if inspect.isawaitable(result):
                 result = await result
@@ -164,10 +176,12 @@ registry.register(ToolSpec(
 ))
 
 
-async def _document_search_tool(inputs: dict[str, Any]) -> dict[str, Any]:
+async def _document_search_tool(inputs: dict[str, Any], caller: Caller) -> dict[str, Any]:
     from app.db.repositories import repo
 
-    hits = await repo.search_chunks(inputs["project_id"], inputs["query"], limit=5)
+    # Scoped to the calling user: a project they don't own looks empty,
+    # exactly like the HTTP routes' 404 behaviour.
+    hits = await repo.search_chunks(inputs["project_id"], inputs["query"], limit=5, owner_id=caller)
     return {"hits": hits or []}
 
 
@@ -176,8 +190,9 @@ registry.register(ToolSpec(
     input_schema={"project_id": "string", "query": "string"},
     output_schema={"hits": "array"},
     # Hybrid retrieval over the project's uploaded files
-    handler=lambda x: _document_search_tool(x),
+    handler=lambda x, c: _document_search_tool(x, c),
     requires_role="user",
+    needs_caller=True,
 ))
 
 

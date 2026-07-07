@@ -20,6 +20,7 @@ PROTECTED_ROUTES = [
     ("GET", "/api/memory/search?project_id=x&q=y"),
     ("GET", "/api/artifacts?project_id=x"),
     ("GET", "/api/tools"),
+    ("POST", "/api/ws-ticket"),
     ("GET", "/api/skills"),
     ("GET", "/api/inference/energy"),
     ("GET", "/api/providers/status"),
@@ -54,11 +55,24 @@ def test_ws_chat_rejects_missing_token():
     assert exc.value.code == 1008
 
 
-def test_ws_chat_rejects_invalid_token():
-    """WebSocket with a garbage token must be closed with policy violation (1008)."""
+def test_ws_chat_rejects_invalid_ticket():
+    """WebSocket with a garbage ticket must be closed with policy violation (1008)."""
     client = TestClient(app)
     with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect("/ws/chat/test-bad-token?token=not.a.jwt"):
+        with client.websocket_connect("/ws/chat/test-bad-ticket?ticket=not-a-ticket"):
+            pass
+    assert exc.value.code == 1008
+
+
+def test_ws_chat_rejects_legacy_query_jwt():
+    """The old ?token=<jwt> path is gone: even a VALID access token in the
+    query string must not authenticate a WebSocket."""
+    from app.core.auth import create_access_token
+
+    client = TestClient(app)
+    jwt = create_access_token("test-user", "owner")
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(f"/ws/chat/legacy?token={jwt}"):
             pass
     assert exc.value.code == 1008
 

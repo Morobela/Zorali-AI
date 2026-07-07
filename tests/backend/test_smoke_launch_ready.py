@@ -1,10 +1,9 @@
 from fastapi.testclient import TestClient
 from app.main import app
-from app.core.auth import create_access_token
 
 client = TestClient(app)
 
-_WS_TOKEN = create_access_token("test-user", "owner")
+from conftest import ws_ticket
 
 
 def test_normal_chat_smoke(monkeypatch):
@@ -12,7 +11,7 @@ def test_normal_chat_smoke(monkeypatch):
         yield "hello"
     monkeypatch.setattr('app.api.chat.stream_llm', fake_stream)
     p = client.post('/api/project', json={'name': 'smoke-chat'}).json()
-    with client.websocket_connect(f'/ws/chat/smoke?token={_WS_TOKEN}') as ws:
+    with client.websocket_connect(f'/ws/chat/smoke?ticket={ws_ticket(client)}') as ws:
         ws.send_json({'mode': 'chat', 'project_id': p['id'], 'message': 'hi'})
         got_done = False
         for _ in range(10):

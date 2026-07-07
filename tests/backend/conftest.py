@@ -8,14 +8,17 @@ Pytest configuration for backend tests.
   "test-user" account that the auth override below impersonates (projects.owner_id
   is a foreign key to users).
 - Applies a dependency override so all protected HTTP routes accept requests
-  without a real JWT. The WebSocket handler validates tokens directly in route
-  code (not via FastAPI Depends), so tests that open a WebSocket must supply
-  the _WS_TOKEN defined in each test module instead.
+  without a real JWT. WebSocket handlers authenticate with single-use tickets
+  (POST /api/ws-ticket, Redis-backed), so tests that open a WebSocket call the
+  ws_ticket() helper below for a fresh ticket per connection.
 """
 import asyncio
 import os
 
 os.environ.setdefault("POSTGRES_HOST", "localhost")
+# WS auth tickets live in Redis (CI starts a redis:7 service; locally the dev
+# compose publishes 6379).
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 # The whole suite shares one unauthenticated client identity (ip:testclient);
 # production limits would 429 mid-run, so give tests an effectively unlimited bucket.
 os.environ.setdefault("RATE_LIMIT_CAPACITY", "100000")
@@ -52,3 +55,10 @@ def _test_user() -> dict:
 
 
 app.dependency_overrides[get_current_user] = _test_user
+
+
+def ws_ticket(client) -> str:
+    """Fresh single-use WebSocket auth ticket for the impersonated test user."""
+    resp = client.post("/api/ws-ticket")
+    assert resp.status_code == 200, resp.text
+    return resp.json()["ticket"]

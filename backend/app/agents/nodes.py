@@ -243,7 +243,13 @@ class ToolExecutorNode:
 
             # Fix #3 — wrap execution, store error in state on failure
             try:
-                output = await registry.execute(call.name, call.inputs)
+                output = await registry.execute(
+                    call.name,
+                    call.inputs,
+                    actor=str(state["caller"]),
+                    actor_role=state.get("caller_role", "user"),
+                    caller=state["caller"],
+                )
                 result = ToolResult(
                     call_id=call.call_id,
                     tool_name=call.name,

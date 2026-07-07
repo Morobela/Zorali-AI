@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
-from app.core.auth import decode_token
+from app.core.tickets import redeem_ticket
 from app.mcp.server import MCPServer
 
 router = APIRouter()
@@ -7,13 +7,11 @@ mcp_server = MCPServer()
 
 
 @router.websocket('/mcp')
-async def mcp(websocket: WebSocket, token: str = Query(default=None)):
-    if not token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-    try:
-        decode_token(token)
-    except Exception:
+async def mcp(websocket: WebSocket, ticket: str = Query(default=None)):
+    # Single-use ticket auth (POST /api/ws-ticket) — same scheme as /ws/chat;
+    # JWTs are never accepted in the URL because query strings get logged.
+    user = await redeem_ticket(ticket)
+    if user is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await websocket.accept()

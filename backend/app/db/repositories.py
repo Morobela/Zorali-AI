@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from sqlalchemy import delete, select
 
+from app.core.caller import Caller, resolve_owner_filter
 from app.db.models import Artifact, ChatMessage, Chunk, File, Memory, MemoryTriple, Project
 from app.db.session import SessionLocal
 
@@ -157,19 +158,21 @@ class Repository:
     # ── Ownership ───────────────────────────────────────────────────────────
 
     @staticmethod
-    async def _project_owned(session, project_id: str, owner_id: str | None) -> bool:
-        """Whether ``owner_id`` owns ``project_id``.
+    async def _project_owned(session, project_id: str, owner_id: Caller) -> bool:
+        """Whether the caller may access ``project_id``.
 
-        ``owner_id=None`` means a trusted internal caller (background tasks,
-        the async retriever invoked by agents, direct repo use in tests) and
-        skips the check. Routers always pass the JWT ``sub`` so cross-user
-        access is denied.
+        ``owner_id`` is a required caller context: the authenticated user's id
+        (JWT ``sub``) or the explicit ``SYSTEM`` marker for internal callers
+        (background ingestion, maintenance scripts), which skips the check.
+        Anything else — including ``None`` — raises ``TypeError`` so an
+        ownership check can never be skipped by accident.
         """
-        if owner_id is None:
+        owner_filter = resolve_owner_filter(owner_id)
+        if owner_filter is None:
             return True
         found = (
             await session.execute(
-                select(Project.id).where(Project.id == project_id, Project.owner_id == owner_id)
+                select(Project.id).where(Project.id == project_id, Project.owner_id == owner_filter)
             )
         ).scalar_one_or_none()
         return found is not None
@@ -177,43 +180,48 @@ class Repository:
     # ── Projects ────────────────────────────────────────────────────────────
 
     async def create_project(
-        self, name: str, description: str = "", owner_id: str | None = None
+        self, name: str, description: str = "", *, owner_id: Caller
     ) -> dict[str, Any]:
+        owner_filter = resolve_owner_filter(owner_id)
         async with SessionLocal() as session:
             async with session.begin():
-                row = Project(id=str(uuid4()), name=name, description=description, owner_id=owner_id)
+                row = Project(id=str(uuid4()), name=name, description=description, owner_id=owner_filter)
                 session.add(row)
             return _project_dict(row)
 
-    async def list_projects(self, owner_id: str | None = None) -> list[dict[str, Any]]:
+    async def list_projects(self, *, owner_id: Caller) -> list[dict[str, Any]]:
+        owner_filter = resolve_owner_filter(owner_id)
         async with SessionLocal() as session:
             stmt = select(Project)
-            if owner_id is not None:
-                stmt = stmt.where(Project.owner_id == owner_id)
+            if owner_filter is not None:
+                stmt = stmt.where(Project.owner_id == owner_filter)
             rows = (await session.execute(stmt.order_by(Project.created_at))).scalars().all()
             return [_project_dict(r) for r in rows]
 
-    async def get_project(self, project_id: str, owner_id: str | None = None) -> dict[str, Any] | None:
+    async def get_project(self, project_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+        owner_filter = resolve_owner_filter(owner_id)
         async with SessionLocal() as session:
             row = (
                 await session.execute(select(Project).where(Project.id == project_id))
             ).scalar_one_or_none()
             if row is None:
                 return None
-            if owner_id is not None and row.owner_id != owner_id:
+            if owner_filter is not None and row.owner_id != owner_filter:
                 return None
             return _project_dict(row)
 
     async def update_project(
         self,
         project_id: str,
-        owner_id: str | None = None,
+        *,
+        owner_id: Caller,
         name: str | None = None,
         description: str | None = None,
         system_prompt: str | None = None,
     ) -> dict[str, Any] | None:
         """Update project fields (only the ones provided). Returns ``None``
         when the project does not exist or is not owned by ``owner_id``."""
+        owner_filter = resolve_owner_filter(owner_id)
         async with SessionLocal() as session:
             async with session.begin():
                 row = (
@@ -221,7 +229,7 @@ class Repository:
                 ).scalar_one_or_none()
                 if row is None:
                     return None
-                if owner_id is not None and row.owner_id != owner_id:
+                if owner_filter is not None and row.owner_id != owner_filter:
                     return None
                 if name is not None:
                     row.name = name
@@ -240,9 +248,13 @@ class Repository:
         role: str,
         content: str,
         citations: list[dict[str, Any]] | None = None,
+        *,
+        owner_id: Caller,
     ) -> dict[str, Any]:
         async with SessionLocal() as session:
             async with session.begin():
+                if not await self._project_owned(session, project_id, owner_id):
+                    raise LookupError("Unknown project_id")
                 row = ChatMessage(
                     id=str(uuid4()),
                     project_id=project_id,
@@ -255,7 +267,7 @@ class Repository:
             return _chat_dict(row)
 
     async def list_chat_messages(
-        self, project_id: str, session_id: str | None = None, owner_id: str | None = None
+        self, project_id: str, session_id: str | None = None, *, owner_id: Caller
     ) -> list[dict[str, Any]] | None:
         """Return a project's chat history, or ``None`` when ``owner_id`` does
         not own the project (routers translate ``None`` to 404)."""
@@ -269,7 +281,7 @@ class Repository:
             return [_chat_dict(r) for r in rows]
 
     async def list_chat_sessions(
-        self, project_id: str, owner_id: str | None = None
+        self, project_id: str, *, owner_id: Caller
     ) -> list[dict[str, Any]] | None:
         """List a project's chat sessions (ChatGPT-style conversation list),
         newest-activity first. Each entry: {session_id, preview, message_count,
@@ -298,11 +310,13 @@ class Repository:
             return ordered
 
     async def delete_last_assistant_message(
-        self, project_id: str, session_id: str
+        self, project_id: str, session_id: str, *, owner_id: Caller
     ) -> bool:
         """Drop the most recent assistant message in a session (regenerate)."""
         async with SessionLocal() as session:
             async with session.begin():
+                if not await self._project_owned(session, project_id, owner_id):
+                    return False
                 row = (
                     await session.execute(
                         select(ChatMessage)
@@ -330,7 +344,8 @@ class Repository:
         extracted_text: str,
         chunks: list[dict[str, Any]],
         indexing_status: str = "ready",
-        owner_id: str | None = None,
+        *,
+        owner_id: Caller,
     ) -> dict[str, Any]:
         file_id = str(uuid4())
         upload_root = self.upload_root.resolve()
@@ -340,8 +355,8 @@ class Repository:
 
         async with SessionLocal() as session:
             async with session.begin():
-                # When owner_id is supplied a project the caller does not own is
-                # indistinguishable from one that does not exist → LookupError (404).
+                # A project the caller does not own is indistinguishable from
+                # one that does not exist → LookupError (404).
                 if not await self._project_owned(session, project_id, owner_id):
                     raise LookupError("Unknown project_id")
                 exists = (
@@ -380,7 +395,7 @@ class Repository:
                 session.add_all(chunk_rows)
             return _file_dict(row, chunk_rows)
 
-    async def get_file(self, file_id: str, owner_id: str | None = None) -> dict[str, Any] | None:
+    async def get_file(self, file_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
         async with SessionLocal() as session:
             row = (
                 await session.execute(select(File).where(File.id == file_id))
@@ -402,15 +417,20 @@ class Repository:
         status: str,
         chunks: list[dict[str, Any]] | None = None,
         extracted_text: str | None = None,
+        *,
+        owner_id: Caller,
     ) -> bool:
         """Update indexing_status and optionally replace extracted text and
-        chunks (with embeddings). Used by the background ingestion task."""
+        chunks (with embeddings). Used by the background ingestion task
+        (which passes ``SYSTEM``)."""
         async with SessionLocal() as session:
             async with session.begin():
                 row = (
                     await session.execute(select(File).where(File.id == file_id))
                 ).scalar_one_or_none()
                 if row is None:
+                    return False
+                if not await self._project_owned(session, row.project_id, owner_id):
                     return False
                 row.indexing_status = status
                 if extracted_text is not None:
@@ -430,10 +450,10 @@ class Repository:
                 return True
 
     async def list_files(
-        self, project_id: str, owner_id: str | None = None
+        self, project_id: str, *, owner_id: Caller
     ) -> list[dict[str, Any]] | None:
         """List a project's files, or ``None`` when ``owner_id`` does not own
-        the project (routers translate ``None`` to 404). With ``owner_id=None``
+        the project (routers translate ``None`` to 404). With ``SYSTEM``
         (trusted internal callers) it always returns a list."""
         async with SessionLocal() as session:
             if not await self._project_owned(session, project_id, owner_id):
@@ -457,7 +477,7 @@ class Repository:
             return [_file_dict(f, by_file[f.id]) for f in files]
 
     async def search_chunks(
-        self, project_id: str, query: str, limit: int = 5, owner_id: str | None = None
+        self, project_id: str, query: str, limit: int = 5, *, owner_id: Caller
     ) -> list[dict[str, Any]] | None:
         """Retrieve the most relevant file chunks for a query.
 
@@ -488,7 +508,7 @@ class Repository:
             for r in results
         ]
 
-    async def delete_file(self, file_id: str, owner_id: str | None = None) -> bool:
+    async def delete_file(self, file_id: str, *, owner_id: Caller) -> bool:
         """Remove a file record (and its chunks) and delete its bytes on disk.
         Returns ``False`` when the file does not exist or ``owner_id`` does not
         own its project."""
@@ -513,7 +533,7 @@ class Repository:
     # ── Artifacts ───────────────────────────────────────────────────────────
 
     async def create_artifact(
-        self, project_id: str, name: str, content: str, owner_id: str | None = None
+        self, project_id: str, name: str, content: str, *, owner_id: Caller
     ) -> dict[str, Any]:
         async with SessionLocal() as session:
             async with session.begin():
@@ -529,7 +549,7 @@ class Repository:
             return _artifact_dict(row)
 
     async def list_artifacts(
-        self, project_id: str, owner_id: str | None = None
+        self, project_id: str, *, owner_id: Caller
     ) -> list[dict[str, Any]] | None:
         """List a project's artifacts, or ``None`` when ``owner_id`` does not
         own the project (routers translate ``None`` to 404)."""
@@ -543,7 +563,7 @@ class Repository:
             ).scalars().all()
             return [_artifact_dict(r) for r in rows]
 
-    async def get_artifact(self, artifact_id: str, owner_id: str | None = None) -> dict[str, Any] | None:
+    async def get_artifact(self, artifact_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
         async with SessionLocal() as session:
             row = (
                 await session.execute(select(Artifact).where(Artifact.id == artifact_id))
@@ -555,7 +575,7 @@ class Repository:
             return _artifact_dict(row)
 
     async def update_artifact(
-        self, artifact_id: str, content: str, owner_id: str | None = None
+        self, artifact_id: str, content: str, *, owner_id: Caller
     ) -> dict[str, Any] | None:
         async with SessionLocal() as session:
             async with session.begin():
