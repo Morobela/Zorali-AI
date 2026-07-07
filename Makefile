@@ -10,7 +10,7 @@ logs:
 	docker compose logs -f
 
 pull-model:
-	docker compose exec ollama ollama pull llama3.1
+	docker compose exec ollama ollama pull llama3.2:1b
 
 test:
 	pytest tests/backend
