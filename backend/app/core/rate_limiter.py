@@ -9,6 +9,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from fastapi import Request, HTTPException, status
 
+from app.core.config import settings
+
 
 @dataclass
 class _Bucket:
@@ -49,8 +51,17 @@ class RateLimiter:
     def _client_key(self, request: Request) -> str:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
-            # Use first 16 chars of token as cheap key (not full decode for performance)
-            return f"jwt:{auth[7:23]}"
+            # Key by the JWT sub so all of a user's tokens share one bucket --
+            # re-minting tokens must not grant fresh rate-limit capacity. An
+            # invalid/expired token still gets a (prefix-keyed) bucket so the
+            # request is rate-limited before auth rejects it.
+            token = auth[7:]
+            try:
+                from app.core.auth import decode_token
+
+                return f"sub:{decode_token(token)['sub']}"
+            except Exception:
+                return f"jwt:{token[:16]}"
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             return f"ip:{forwarded.split(',')[0].strip()}"
@@ -84,8 +95,6 @@ class RateLimiter:
             )
         return await call_next(request)
 
-
-from app.core.config import settings
 
 limiter = RateLimiter(
     capacity=settings.rate_limit_capacity,

@@ -1,0 +1,16 @@
+# Repo-wide lint configuration (backend + tests). CI runs `ruff check`.
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Correctness-focused gate: pyflakes (F), import/indentation/syntax errors
+# (E4/E7/E9). E701/E702 (multiple statements on one line) are excluded — the
+# compressed one-liner style predates the linter and is cosmetic only.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E701", "E702"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests configure the environment (os.environ) before importing the app, and
+# import conftest helpers after module-level client setup.
+"tests/**" = ["E402"]

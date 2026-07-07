@@ -1,5 +1,5 @@
 """Skills management API routes."""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.skills.registry import skill_registry
 from app.skills.loader import discover_and_load

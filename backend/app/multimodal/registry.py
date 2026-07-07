@@ -4,7 +4,6 @@ Pattern: HuggingFace PipelineRegistry — maps task names to pipeline classes,
 supports aliases, enables task-specific pipeline discovery without tight coupling.
 """
 from __future__ import annotations
-from typing import Type
 from app.multimodal.base import BaseModalPipeline, TextPipeline, ImageDescriptionPipeline
 
 

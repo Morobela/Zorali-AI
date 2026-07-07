@@ -10,7 +10,6 @@ from app.core.tickets import redeem_ticket
 from app.db.repositories import repo
 from app.agents.orchestrator import route_agent
 from app.learning.trace_store import trace_store, Trace
-from app.chains.sequential import rag_chain
 from app.memory.knowledge_graph import knowledge_graph
 from app.memory.retrieval import hybrid_retriever
 from app.multimodal.vision import attach_images, extract_image_attachments

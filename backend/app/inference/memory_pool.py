@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from collections import deque
-from typing import Any
 
 
 BLOCK_SIZE = 512  # tokens per block (configurable)

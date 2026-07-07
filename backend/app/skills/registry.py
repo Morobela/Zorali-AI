@@ -6,7 +6,6 @@ Patterns:
 - PyTorch: dict-based component registration with name as primary key
 """
 from __future__ import annotations
-from typing import Type
 from app.skills.base import BaseSkill, SkillManifest
 from app.core.audit import audit, AuditEvent
 

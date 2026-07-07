@@ -76,9 +76,11 @@ docker compose -f docker-compose.prod.yml exec ollama ollama pull llama3.2:1b
 ```
 The production stack serves the built frontend through nginx (which also reverse-proxies
 `/api`, `/a2a` and `/ws` to the backend with WebSocket upgrade headers). Only nginx
-publishes ports (80/443); Postgres, Redis, Ollama and the backend stay on the internal
-network. The backend runs `uvicorn` without `--reload` and without source bind mounts;
-migrations run automatically on container start.
+publishes a port (host 80 → container 8080 — nginx runs as a non-root user; terminate
+TLS at an upstream proxy or add certs + a `listen 443` server to `infra/nginx/nginx.conf`).
+Postgres, Redis, Ollama and the backend stay on the internal network. Both images run
+as non-root users with digest-pinned bases. The backend runs `uvicorn` without
+`--reload` and without source bind mounts; migrations run automatically on container start.
 
 With `APP_ENV=production` the dev-only `POST /api/auth/demo-login` returns 404.
 
@@ -150,8 +152,10 @@ Key `.env` settings (see `.env.example` for the full list):
 - Dangerous file-write/delete task commands are intentionally not implemented.
 - Code execution is disabled by default and double-gated (deployment setting +
   admin role). The sandbox is `python -I` in a subprocess with a clean environment,
-  temp working directory and timeout — it is **not** a container and cannot block
-  network or world-readable file access; enable only on trusted deployments.
+  temp working directory and timeout — that is **not an isolation boundary**: it is
+  not a container and cannot block network or world-readable file access. The
+  feature stays admin-only until containerized sandboxing exists; enable only on
+  trusted single-admin deployments.
 
 ## Project structure
 - `backend/app/api`: REST + WS routes

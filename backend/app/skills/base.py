@@ -46,7 +46,7 @@ class BaseSkill(ABC):
     def invoke(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Sync wrapper — delegates to ainvoke via a new event loop if needed."""
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # probe: raises RuntimeError when no loop
             # We're inside an async context; caller should use ainvoke
             raise RuntimeError("Use ainvoke() inside async contexts")
         except RuntimeError as exc:
