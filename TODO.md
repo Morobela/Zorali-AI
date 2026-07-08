@@ -1,20 +1,33 @@
-# Zorali OpenJarvis-Inspired Upgrade Plan
+# Zorali — open work
 
-## Current stack assessment
-- Frontend: React + Vite (`frontend/src/Zorali.jsx`)
-- Backend: FastAPI + WebSocket streaming (`backend/app/main.py`, `backend/app/api/chat.py`)
-- Package managers: `pip` for backend, `npm` for frontend
-- Storage: JSON repositories + local file storage (`backend/app/db/repositories.py`)
-- Current AI integration: Ollama-only streaming client (`backend/app/models/ollama_client.py`)
+Current state (2026-07): FastAPI backend with Postgres/pgvector storage
+(Alembic-managed), JWT auth + RBAC + per-user isolation, WebSocket streaming
+chat, two-stage hybrid RAG with optional dense embeddings, async file
+ingestion, deep research, graph memory, vision input, opt-in `python -I` code
+sandbox, React/Vite PWA frontend, dev and prod compose stacks. The
+OpenJarvis-inspired upgrade plan that used to live in this file shipped in PRs
+#8–#18; see `docs/audit/PHASE0_ROOT_AUDIT.md` for the latest full audit.
 
-## Implementation plan
-1. Add provider abstraction and router with local-first fallback (Ollama first, cloud optional).
-2. Add Ollama health endpoint and better setup error handling/messages.
-3. Introduce modular agent orchestrator with chat/research/code/file agents.
-4. Add typed tool registry with initial tools and safe file operations.
-5. Add persistent memory API (save/search/delete) using existing JSON persistence layer.
-6. Extend chat websocket payload support (model, mode/agent, local/cloud, deep_research, attachments).
-7. Add command safety guard with denylist for code mode command execution.
-8. Upgrade frontend controls (model selector, local/cloud indicator, deep research, code mode, voice/image placeholders).
-9. Add/refresh docs and `.env.example` entries for provider routing.
-10. Add tests for provider router, tool registry, memory search.
+## Security hardening (audit Phase 2)
+- [ ] Replace `?token=` WebSocket auth with single-use Redis-backed tickets
+      (`POST /api/ws-ticket`, ~60s TTL, bound to user id) on **both** WS
+      endpoints (`/ws/chat/{session_id}` and the MCP socket); stop nginx from
+      logging query strings.
+- [ ] Replace the `owner_id=None` trusted-caller convention with a required
+      caller context (user id or explicit SYSTEM marker) across the repository
+      layer; scope the `document_search` tool to the requesting user.
+
+## Tests & CI (audit Phase 3)
+- [ ] Token-expiry rejection test; RBAC matrix test per role (owner / admin /
+      user / readonly); rate-limiter behavior tests (per-sub buckets, IP
+      fallback); Alembic upgrade→downgrade round trip on a clean database.
+- [ ] CI: linter (none configured yet), docker builds for both images,
+      `pip-audit` + `npm audit --audit-level=high`, Redis service.
+- [ ] Dockerfiles: non-root users, pinned base images.
+- [ ] Pin `frontend/package.json` dependencies (currently all `"latest"`).
+
+## Product roadmap (from README)
+- [ ] Automatic memory extraction from conversations (with a review UI).
+- [ ] Artifact side-panel live preview/rendering.
+- [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
+- [ ] Retrieval quality metrics in CI (Recall@5, MRR) on the RAG eval corpus.
