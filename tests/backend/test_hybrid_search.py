@@ -18,6 +18,8 @@ All pure-Python and deterministic — no providers or network required.
 """
 from __future__ import annotations
 
+from app.core.caller import SYSTEM
+
 import pytest
 
 from app.memory.hybrid_search import (
@@ -324,7 +326,7 @@ def test_repo_search_chunks_preserves_shape_and_improves_ranking():
     import asyncio
     from app.db.repositories import repo
 
-    project = asyncio.run(repo.create_project("hybrid-search-test", "rag"))
+    project = asyncio.run(repo.create_project("hybrid-search-test", "rag", owner_id=SYSTEM))
     pid = project["id"]
     chunks = [
         {"id": 0, "text": "The quarterly revenue report shows strong year over year growth"},
@@ -333,15 +335,15 @@ def test_repo_search_chunks_preserves_shape_and_improves_ranking():
     ]
     asyncio.run(repo.save_file(
         project_id=pid, filename="report.md", content=b"x",
-        extracted_text=" ".join(c["text"] for c in chunks), chunks=chunks,
+        extracted_text=" ".join(c["text"] for c in chunks), chunks=chunks, owner_id=SYSTEM,
     ))
 
-    results = asyncio.run(repo.search_chunks(pid, "revenue report", limit=3))
+    results = asyncio.run(repo.search_chunks(pid, "revenue report", limit=3, owner_id=SYSTEM))
     assert results, "should retrieve at least one chunk"
     assert set(results[0].keys()) == {"file_id", "filename", "chunk_id", "text", "score"}
     assert results[0]["chunk_id"] == 0
     assert results[0]["filename"] == "report.md"
-    assert asyncio.run(repo.search_chunks(pid, "", limit=3)) == []
+    assert asyncio.run(repo.search_chunks(pid, "", limit=3, owner_id=SYSTEM)) == []
 
 
 def test_repo_search_chunks_idf_over_naive_overlap():
@@ -349,7 +351,7 @@ def test_repo_search_chunks_idf_over_naive_overlap():
     import asyncio
     from app.db.repositories import repo
 
-    project = asyncio.run(repo.create_project("hybrid-idf-test", "rag"))
+    project = asyncio.run(repo.create_project("hybrid-idf-test", "rag", owner_id=SYSTEM))
     pid = project["id"]
     chunks = [
         {"id": 0, "text": "general notes about the project and the team and the plan"},
@@ -357,9 +359,9 @@ def test_repo_search_chunks_idf_over_naive_overlap():
     ]
     asyncio.run(repo.save_file(
         project_id=pid, filename="notes.md", content=b"x",
-        extracted_text=" ".join(c["text"] for c in chunks), chunks=chunks,
+        extracted_text=" ".join(c["text"] for c in chunks), chunks=chunks, owner_id=SYSTEM,
     ))
-    results = asyncio.run(repo.search_chunks(pid, "kubernetes deployment", limit=2))
+    results = asyncio.run(repo.search_chunks(pid, "kubernetes deployment", limit=2, owner_id=SYSTEM))
     assert results[0]["chunk_id"] == 1
 
 

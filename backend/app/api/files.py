@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from app.core.caller import SYSTEM
 from app.db.repositories import repo
 from app.core.config import settings
 from app.core.rbac import user_or_above
@@ -91,7 +92,7 @@ async def _ingest_file_background(file_id: str, safe_name: str, raw: bytes) -> N
     ``GET /api/files/{id}/status`` for queued → indexing → ready | failed.
     """
     try:
-        await repo.update_file_indexing_status(file_id, "indexing")
+        await repo.update_file_indexing_status(file_id, "indexing", owner_id=SYSTEM)
         # CPU-bound: keep the event loop free while pypdf/decoding runs.
         text = await asyncio.to_thread(extract_text, safe_name, raw)
         chunks = chunk_text(text)
@@ -114,11 +115,11 @@ async def _ingest_file_background(file_id: str, safe_name: str, raw: bytes) -> N
                     for chunk, vec in zip(chunks, vectors)
                 ]
         await repo.update_file_indexing_status(
-            file_id, "ready", chunks=embedded_chunks, extracted_text=text
+            file_id, "ready", chunks=embedded_chunks, extracted_text=text, owner_id=SYSTEM
         )
     except Exception as exc:
         _log.warning("Background ingestion failed for %s: %s", file_id, exc)
-        await repo.update_file_indexing_status(file_id, "failed")
+        await repo.update_file_indexing_status(file_id, "failed", owner_id=SYSTEM)
 
 
 @router.post('/upload', status_code=202)

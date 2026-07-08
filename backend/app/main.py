@@ -12,6 +12,7 @@ from app.api.auth import router as auth_router
 from app.api.tools import router as tools_router
 from app.api.files import router as files_router
 from app.api.mcp import router as mcp_router
+from app.api.ws_ticket import router as ws_ticket_router
 from app.api.artifacts import router as artifacts_router
 from app.api.skills import router as skills_router
 from app.api.inference_stats import router as inference_router
@@ -38,6 +39,8 @@ async def lifespan(application: FastAPI):
     # Graceful shutdown
     await batch_processor.stop()
     await task_queue.stop()
+    from app.core.tickets import close_ticket_store
+    await close_ticket_store()
 
 
 app = FastAPI(title="Zorali", version="2.0.0", lifespan=lifespan)
@@ -73,6 +76,7 @@ app.include_router(project_router)
 app.include_router(tools_router)
 app.include_router(files_router)
 app.include_router(mcp_router)
+app.include_router(ws_ticket_router)
 app.include_router(artifacts_router)
 app.include_router(a2a_router)
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from app.models.llm import stream_llm
 from app.reality.project_scanner import status_report
 from app.core.config import settings
-from app.core.auth import decode_token
+from app.core.tickets import redeem_ticket
 from app.db.repositories import repo
 from app.agents.orchestrator import route_agent
 from app.learning.trace_store import trace_store, Trace
@@ -36,14 +36,12 @@ def _task_result(status: str, result: str, tools_used: list[str], citations: lis
 
 
 @router.websocket("/ws/chat/{session_id}")
-async def chat_ws(websocket: WebSocket, session_id: str, token: str = Query(default=None)):
-    # Validate JWT before accepting the connection
-    if not token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-    try:
-        user = decode_token(token)
-    except Exception:
+async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(default=None)):
+    # Authenticate with a single-use ticket from POST /api/ws-ticket. JWTs are
+    # never accepted here: a query-string token would end up in access logs,
+    # while a ticket is worthless once redeemed (and expires within a minute).
+    user = await redeem_ticket(ticket)
+    if user is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -141,7 +139,12 @@ async def chat_ws(websocket: WebSocket, session_id: str, token: str = Query(defa
 
             resolved_mode = "deep_research" if data.get("deep_research") else mode
             regenerate = bool(data.get("regenerate"))
-            agent_plan = await route_agent(resolved_mode, message, {"project_id": project_id, "attachments": data.get("attachments", [])})
+            agent_plan = await route_agent(resolved_mode, message, {
+                "project_id": project_id,
+                "attachments": data.get("attachments", []),
+                "owner_id": owner,
+                "role": user.get("role", "user"),
+            })
             retrieved = await hybrid_retriever.retrieve(message, top_k=3, project_id=project_id, owner_id=owner) or []
 
             # Project context: custom instructions + whether history is persistable.
@@ -153,9 +156,9 @@ async def chat_ws(websocket: WebSocket, session_id: str, token: str = Query(defa
                 if regenerate:
                     # Re-answer the last user turn: drop the previous answer and
                     # do not store the (already stored) user message again.
-                    await repo.delete_last_assistant_message(project_id, session_id)
+                    await repo.delete_last_assistant_message(project_id, session_id, owner_id=owner)
                 else:
-                    await repo.add_chat_message(project_id, session_id, "user", message)
+                    await repo.add_chat_message(project_id, session_id, "user", message, owner_id=owner)
                 memory = await repo.list_chat_messages(project_id, session_id, owner_id=owner) or []
             else:
                 memory = []
@@ -254,7 +257,7 @@ async def chat_ws(websocket: WebSocket, session_id: str, token: str = Query(defa
             latency_ms = (time.perf_counter() - t_start) * 1000
             citations = [{k: c[k] for k in ("file_id", "filename", "chunk_id", "score")} for c in retrieved]
             if persistable and (full or not stopped):
-                await repo.add_chat_message(project_id, session_id, "assistant", full, citations=citations)
+                await repo.add_chat_message(project_id, session_id, "assistant", full, citations=citations, owner_id=owner)
             await websocket.send_json({
                 "type": "done",
                 "citations": citations,

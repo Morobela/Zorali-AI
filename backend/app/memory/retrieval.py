@@ -26,6 +26,7 @@ import logging
 # Module-level imports so these bindings are captured once at import time,
 # before any test-level module reloads (e.g. importlib.reload(repositories))
 # can replace the module-level singletons with temporary instances.
+from app.core.caller import Caller
 from app.db.repositories import repo
 from app.memory.hybrid_search import engine, build_chunk_documents, cosine_rank
 from app.core.config import settings
@@ -35,13 +36,13 @@ _log = logging.getLogger(__name__)
 
 class HybridRetriever:
     async def retrieve(
-        self, query: str, top_k: int = 5, *, project_id: str = "default", owner_id: str | None = None
+        self, query: str, top_k: int = 5, *, project_id: str = "default", owner_id: Caller
     ):
         """Retrieve top chunks for ``query`` within ``project_id``.
 
-        When ``owner_id`` is supplied and does not own the project, returns
-        ``None`` so HTTP callers can 404. Trusted internal callers (agents,
-        chains) pass no ``owner_id`` and always get a list.
+        ``owner_id`` is the required caller context (user id or SYSTEM). When
+        a user does not own the project, returns ``None`` so HTTP callers can
+        404; SYSTEM always gets a list.
         """
         files = await repo.list_files(project_id, owner_id=owner_id)
         if files is None:

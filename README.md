@@ -6,8 +6,10 @@ Authentication and per-user data isolation are enforced, and all state persists 
 Postgres (with pgvector for embeddings).
 
 ## Features
-- WebSocket streaming chat (`/ws/chat/{session_id}`), JWT-authenticated via `?token=`,
-  with **stop generation**, **regenerate**, and a per-project **conversation list**
+- WebSocket streaming chat (`/ws/chat/{session_id}`), authenticated with
+  **single-use tickets** (`POST /api/ws-ticket`, Redis-backed, ~60s TTL — the JWT
+  never appears in a URL), with **stop generation**, **regenerate**, and a
+  per-project **conversation list**
 - **Voice mode**: speech-to-text input and spoken replies (Web Speech API, JARVIS-style)
 - **Custom instructions per project** (ChatGPT/Claude-style), injected as a system message
 - See `docs/FEATURE_PARITY.md` for the ChatGPT / Claude / Grok / JARVIS parity matrix,
@@ -99,8 +101,10 @@ PYTHONPATH=backend uvicorn app.main:app --reload --port 8000
 # frontend
 cd frontend && npm ci && npm run dev
 
-# tests (requires a reachable Postgres)
-POSTGRES_HOST=localhost PYTHONPATH=backend pytest tests/backend -q
+# tests (require reachable Postgres AND Redis — the dev compose publishes
+# both on localhost:5432 / localhost:6379)
+POSTGRES_HOST=localhost REDIS_URL=redis://localhost:6379/0 \
+  PYTHONPATH=backend pytest tests/backend -q
 ```
 
 ## Configuration
@@ -125,11 +129,19 @@ Key `.env` settings (see `.env.example` for the full list):
   `POST /api/artifacts/{artifact_id}/run` (sandbox, admin + `CODE_EXECUTION_ENABLED`)
 - `POST /api/memory`, `GET /api/memory/search`, `GET /api/memory/semantic-search`,
   `GET /api/memory/graph`, `DELETE /api/memory/{id}`
-- `WS /ws/chat/{session_id}?token=<jwt>`
+- `POST /api/ws-ticket` — exchange the access token for a single-use WebSocket
+  auth ticket (Redis-backed, 60s TTL, consumed on connect)
+- `WS /ws/chat/{session_id}?ticket=<ticket>` (JWTs are not accepted in the URL)
 
 ## Security notes
 - JWT authentication and role-based access control on every data route.
+- WebSockets authenticate with single-use tickets (`POST /api/ws-ticket`) so
+  tokens never appear in URLs or access logs; the production nginx `log_format`
+  additionally never logs query strings.
 - Per-user isolation: users can only see and mutate their own projects and data.
+  The repository layer requires an explicit caller context (the user id, or a
+  deliberate `SYSTEM` marker for background tasks) on every call — an unscoped
+  query cannot happen by omission.
 - Upload size limit and extension allowlist; path traversal rejected for `project_id`
   and filename; hidden files like `.env` are blocked from upload.
 - Retrieved file context and fetched web pages are treated as untrusted evidence in

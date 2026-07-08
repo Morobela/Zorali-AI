@@ -2,13 +2,13 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
+from app.core.caller import SYSTEM
 from app.main import app
 from app.db import repositories as repos
-from app.core.auth import create_access_token
 
 client = TestClient(app)
 
-_WS_TOKEN = create_access_token("test-user", "owner")
+from conftest import ws_ticket
 
 
 def test_health_endpoint():
@@ -49,7 +49,7 @@ def test_artifact_create_update_list():
 
 
 def test_chat_route_import_and_task_mode():
-    with client.websocket_connect(f'/ws/chat/s1?token={_WS_TOKEN}') as ws:
+    with client.websocket_connect(f'/ws/chat/s1?ticket={ws_ticket(client)}') as ws:
       ws.send_json({'mode': 'task', 'project_id': 'default', 'message': '/help'})
       msg = ws.receive_json()
       assert msg['type'] == 'task_result'
@@ -59,6 +59,6 @@ def test_repository_persists_across_instances():
     """Rows written through one Repository instance are visible from a fresh
     instance — persistence now lives in Postgres, not a per-instance JSON file."""
     repo = repos.Repository()
-    p = asyncio.run(repo.create_project('persist'))
+    p = asyncio.run(repo.create_project('persist', owner_id=SYSTEM))
     repo2 = repos.Repository()
-    assert any(x['id'] == p['id'] for x in asyncio.run(repo2.list_projects()))
+    assert any(x['id'] == p['id'] for x in asyncio.run(repo2.list_projects(owner_id=SYSTEM)))

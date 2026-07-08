@@ -4,7 +4,6 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.auth import create_access_token
 from app.core.config import settings
 from app.main import app
 from app.tools.code_sandbox import code_sandbox
@@ -12,7 +11,7 @@ from app.tools.registry import registry
 
 client = TestClient(app)
 
-_WS_TOKEN = create_access_token("test-user", "owner")
+from conftest import ws_ticket
 
 
 def test_sandbox_runs_python_and_captures_output():
@@ -44,12 +43,12 @@ def test_sandbox_env_is_clean():
 def test_registry_tool_blocked_when_disabled():
     assert settings.code_execution_enabled is False
     with pytest.raises(PermissionError):
-        asyncio.run(registry.execute("code_execution", {"code": "print(1)"}, actor_role="admin"))
+        asyncio.run(registry.execute("code_execution", {"code": "print(1)"}, actor_role="admin", caller="test-user"))
 
 
 def test_registry_tool_runs_when_enabled(monkeypatch):
     monkeypatch.setattr(settings, "code_execution_enabled", True)
-    out = asyncio.run(registry.execute("code_execution", {"code": "print(2+2)"}, actor_role="admin"))
+    out = asyncio.run(registry.execute("code_execution", {"code": "print(2+2)"}, actor_role="admin", caller="test-user"))
     assert out["returncode"] == 0
     assert "4" in out["stdout"]
 
@@ -57,7 +56,7 @@ def test_registry_tool_runs_when_enabled(monkeypatch):
 def test_registry_tool_requires_admin_role(monkeypatch):
     monkeypatch.setattr(settings, "code_execution_enabled", True)
     with pytest.raises(PermissionError):
-        asyncio.run(registry.execute("code_execution", {"code": "print(1)"}, actor_role="user"))
+        asyncio.run(registry.execute("code_execution", {"code": "print(1)"}, actor_role="user", caller="test-user"))
 
 
 def test_artifact_run_endpoint_gated_by_setting():
@@ -83,7 +82,7 @@ def test_artifact_run_endpoint_executes_latest_version(monkeypatch):
 
 def test_ws_run_command_gated_then_runs(monkeypatch):
     p = client.post('/api/project', json={'name': 'run-ws'}).json()
-    with client.websocket_connect(f'/ws/chat/run-ws?token={_WS_TOKEN}') as ws:
+    with client.websocket_connect(f'/ws/chat/run-ws?ticket={ws_ticket(client)}') as ws:
         ws.send_json({'mode': 'task', 'project_id': p['id'], 'message': '/run print(11*11)'})
         msg = ws.receive_json()
         assert msg['type'] == 'task_result'
@@ -91,7 +90,7 @@ def test_ws_run_command_gated_then_runs(monkeypatch):
         assert 'CODE_EXECUTION_ENABLED' in msg['data']['result']
 
     monkeypatch.setattr(settings, "code_execution_enabled", True)
-    with client.websocket_connect(f'/ws/chat/run-ws2?token={_WS_TOKEN}') as ws:
+    with client.websocket_connect(f'/ws/chat/run-ws2?ticket={ws_ticket(client)}') as ws:
         ws.send_json({'mode': 'task', 'project_id': p['id'], 'message': '/run print(11*11)'})
         msg = ws.receive_json()
         assert msg['data']['status'] == 'complete'
