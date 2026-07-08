@@ -495,7 +495,6 @@ def test_ranker_guarantee_not_needed_without_dense():
 
 # ── Embed texts: prefix and batching (mocked Ollama) ────────────────────────
 
-import pytest
 
 
 @pytest.mark.asyncio

@@ -32,9 +32,11 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
+    # nginx runs unprivileged and listens on 8080 inside the container.
+    # (No 443 mapping: TLS is not configured in nginx.conf — terminate TLS at
+    # an upstream proxy/load balancer, or add certs + a listen 443 server.)
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:8080"
     depends_on:
       - backend
 

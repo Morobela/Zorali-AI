@@ -6,7 +6,6 @@ Security: blocks private IPs, localhost, link-local ranges, cloud metadata
 endpoints, and non-HTTP schemes to prevent SSRF.
 """
 import ipaddress
-import re
 from urllib.parse import urlparse
 from app.skills.base import BaseSkill, SkillManifest
 from typing import Any

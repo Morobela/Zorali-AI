@@ -7,8 +7,6 @@ Measures every inference call and exposes a cost signal so the
 provider router can make informed local-vs-cloud decisions.
 """
 from __future__ import annotations
-import time
-import math
 from dataclasses import dataclass, field
 from collections import deque
 from typing import Deque

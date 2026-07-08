@@ -20,7 +20,6 @@ from app.a2a.endpoint import router as a2a_router
 from app.core.config import settings
 from app.core.rate_limiter import limiter
 from app.core.metrics import metrics_endpoint, metrics_middleware
-from app.core.hooks import global_hooks
 from app.inference.batch_processor import batch_processor
 from app.orchestration.task_queue import task_queue
 from app.skills.loader import discover_and_load

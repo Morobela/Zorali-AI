@@ -6,7 +6,6 @@ Skills are plain Python files with a SKILL_MANIFEST dict and a create() function
 from __future__ import annotations
 import importlib.util
 import sys
-import os
 from pathlib import Path
 from app.skills.base import BaseSkill, SkillManifest
 from app.skills.registry import skill_registry

@@ -1,7 +1,23 @@
 name: CI
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main]
+
 jobs:
-  build:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ruff (config in pyproject.toml)
+        run: |
+          pip install ruff
+          ruff check backend/app tests/backend infra/scripts
+
+  backend-tests:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -39,21 +55,56 @@ jobs:
         run: |
           cd backend
           alembic upgrade head
-      - name: Backend tests
+      - name: Backend tests (real Postgres + Redis)
         env:
           ZORALI_DATA_DIR: ${{ runner.temp }}/zorali-data
           POSTGRES_HOST: localhost
           REDIS_URL: redis://localhost:6379/0
         run: PYTHONPATH=backend pytest tests/backend -q
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit backend dependencies
+        # PYSEC-2026-1325: ecdsa (transitive via python-jose) has no fixed
+        # release; Zorali signs JWTs with HS256 only, so the ECDSA code path
+        # is never exercised. Revisit when python-jose drops ecdsa or a fix
+        # ships.
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt --ignore-vuln PYSEC-2026-1325
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Frontend build
+      - name: Build
         run: |
           cd frontend
           npm ci
           npm run build
-      - name: Create env file for compose
-        run: cp .env.example .env
-      - name: Docker compose config check
-        run: docker compose config
+      - name: npm audit (high+)
+        run: |
+          cd frontend
+          npm audit --audit-level=high
+
+  docker-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t zorali-backend ./backend
+      - name: Build frontend image (multi-stage nginx)
+        run: docker build -t zorali-frontend -f frontend/Dockerfile .
+      - name: Compose config checks
+        run: |
+          cp .env.example .env
+          docker compose config
+          docker compose -f docker-compose.prod.yml config

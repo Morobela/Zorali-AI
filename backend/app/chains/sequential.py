@@ -4,8 +4,7 @@ Pattern: LangChain chain architecture for sequential reasoning.
 Each chain is a Runnable built by composing smaller Runnables with |.
 """
 from __future__ import annotations
-from typing import Any
-from app.chains.base import Runnable, RunnableLambda, RunnableConfig
+from app.chains.base import Runnable, RunnableLambda
 
 
 async def _rag_retrieve(inputs: dict) -> dict:

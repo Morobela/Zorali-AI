@@ -1,6 +1,5 @@
 """Phase 5 coverage: /metrics endpoint, settings-driven rate limiter,
 and pypdf-based PDF extraction."""
-import io
 
 from fastapi.testclient import TestClient
 

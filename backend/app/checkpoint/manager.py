@@ -15,7 +15,7 @@ import os
 import time
 import hashlib
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Any
 
 # Honour ZORALI_DATA_DIR env var so CI runners and non-Docker environments work

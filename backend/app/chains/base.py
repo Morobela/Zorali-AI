@@ -41,7 +41,7 @@ class Runnable(ABC, Generic[Input, Output]):
 
     def invoke(self, inputs: Input, config: RunnableConfig | None = None) -> Output:
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # probe: raises RuntimeError when no loop
             raise RuntimeError("Use ainvoke() inside async contexts")
         except RuntimeError as exc:
             if "Use ainvoke" in str(exc):

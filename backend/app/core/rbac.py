@@ -5,8 +5,6 @@ wrap any route handler with role requirements without touching core logic.
 """
 from __future__ import annotations
 from enum import Enum
-from functools import wraps
-from typing import Callable
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.auth import decode_token

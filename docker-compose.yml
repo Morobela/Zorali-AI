@@ -2,6 +2,10 @@ services:
   backend:
     build: ./backend
     env_file: .env
+    # Dev only: the image runs as a non-root user, but the source/data bind
+    # mounts below are host-owned — run as root here so hot reload and /data
+    # writes work. The prod stack (named volume, no bind mounts) stays non-root.
+    user: "0:0"
     ports:
       - "8000:8000"
     depends_on:

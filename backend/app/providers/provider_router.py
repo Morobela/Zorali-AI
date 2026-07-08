@@ -28,7 +28,6 @@ class ProviderRouter:
         started = time.perf_counter()
         providers = [self.ollama, self.cloud] if use_local_first else [self.cloud, self.ollama]
         last_error = None
-        active_provider = None
 
         for provider in providers:
             try:
@@ -37,7 +36,6 @@ class ProviderRouter:
                 async for token in provider.stream_chat(messages, model=model):
                     self.last_used_provider = provider.name
                     self.fallback_used = provider != providers[0]
-                    active_provider = provider.name
                     token_count += 1
                     yield token, provider.name
 
