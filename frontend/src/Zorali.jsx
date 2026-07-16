@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import logo from './assets/zorali-logo.png'
 import { createZoraliSocket } from './api/zoraliSocket.js'
-import { apiGet, apiPost, apiPut, apiUpload, apiDelete } from './api/httpClient.js'
+import { apiGet, apiPost, apiPut, apiPatch, apiUpload, apiDelete } from './api/httpClient.js'
 
 // ─── Suggestion cards ─────────────────────────────────────────────────────────
 const SUGGESTIONS = [
@@ -270,6 +270,8 @@ export default function Zorali() {
   // Conversation (session) management — ChatGPT-style history in the sidebar
   const [sessionKey, setSessionKey] = useState(() => crypto.randomUUID())
   const [sessions, setSessions] = useState([])
+  // Client-side filter over the loaded session previews (server-side search is a later phase).
+  const [sessionSearch, setSessionSearch] = useState('')
   const bottomRef = useRef(null)
   const isStreaming = messages[messages.length - 1]?.streaming === true
 
@@ -728,6 +730,10 @@ export default function Zorali() {
     }
   }
 
+  const visibleSessions = sessionSearch.trim()
+    ? sessions.filter(s => (s.preview || '').toLowerCase().includes(sessionSearch.trim().toLowerCase()))
+    : sessions
+
   // ─── Render ──────────────────────────────────────────────────────────────
   return (
     <div className="zorali-shell">
@@ -742,7 +748,12 @@ export default function Zorali() {
         </div>
 
         <button className="new-chat" onClick={newChat}>+ New chat</button>
-        <input className="sidebar-search" placeholder="Search chats…" />
+        <input
+          className="sidebar-search"
+          placeholder="Search chats…"
+          value={sessionSearch}
+          onChange={e => setSessionSearch(e.target.value)}
+        />
 
         <section>
           <div className="section-title">
@@ -772,7 +783,10 @@ export default function Zorali() {
           {sessions.length === 0 && (
             <div className="recent-item" style={{ opacity: 0.55, cursor: 'default' }}>No conversations yet</div>
           )}
-          {sessions.slice(0, 12).map(s => (
+          {sessions.length > 0 && visibleSessions.length === 0 && (
+            <div className="recent-item" style={{ opacity: 0.55, cursor: 'default' }}>No matching chats</div>
+          )}
+          {visibleSessions.slice(0, 12).map(s => (
             <div
               key={s.session_id}
               className={`recent-item${s.session_id === sessionKey ? ' active' : ''}`}

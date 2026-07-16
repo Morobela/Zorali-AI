@@ -90,6 +90,10 @@ jobs:
           cd frontend
           npm ci
           npm run build
+      - name: Frontend tests (Vitest)
+        run: |
+          cd frontend
+          npm test
       - name: npm audit (high+)
         run: |
           cd frontend

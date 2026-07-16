@@ -13,7 +13,7 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | Feature | Reference assistant | Zorali status | Where |
 |---|---|---|---|
 | Streaming chat with markdown + code blocks + copy | All | ✅ | WS `/ws/chat/{session}`, `Zorali.jsx` renderer |
-| Conversation history list ("Recent"), switch + resume | ChatGPT/Claude/Grok | ✅ | `GET /api/project/{id}/sessions`, sidebar |
+| Conversation history list ("Recent"), switch + resume | ChatGPT/Claude/Grok | ✅ | `GET /api/project/{id}/sessions`, sidebar; client-side search over previews (server-side search on roadmap) |
 | Stop generation mid-answer | All | ✅ | WS `{"mode":"stop"}`, ⏹ Stop button |
 | Regenerate last response | All | ✅ | WS `regenerate: true`, ↻ button |
 | Copy message | All | ✅ | message action row |
