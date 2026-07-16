@@ -41,6 +41,7 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | Personality / persona | JARVIS wit, Grok companions | ✅ via custom instructions | set per-project (e.g. "address me as Commander, dry wit") |
 | Mobile/PWA install | All apps | ✅ | manifest + service worker |
 | 2M-token context (Grok 4) | Grok | ✖ | bounded by the local model's context window |
+| Long-conversation memory (rolling summarization) | ChatGPT/Claude context management | ✅ | histories over `CONTEXT_MAX_TOKENS` (chars/4 estimate) fold older turns into one persisted per-session summary ("Conversation summary so far: …"), reused across turns; last `CONTEXT_KEEP_MESSAGES` stay verbatim |
 
 ## What was added in this batch (modern-AI requirements release)
 

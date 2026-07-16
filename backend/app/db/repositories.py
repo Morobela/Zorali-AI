@@ -22,7 +22,7 @@ from uuid import uuid4
 from sqlalchemy import delete, select
 
 from app.core.caller import Caller, resolve_owner_filter
-from app.db.models import Artifact, ChatMessage, Chunk, File, Memory, MemoryTriple, Project
+from app.db.models import Artifact, ChatMessage, Chunk, File, Memory, MemoryTriple, Project, SessionSummary
 from app.db.session import SessionLocal
 
 STOPWORDS = {
@@ -279,6 +279,79 @@ class Repository:
                 stmt = stmt.where(ChatMessage.session_id == session_id)
             rows = (await session.execute(stmt.order_by(ChatMessage.seq))).scalars().all()
             return [_chat_dict(r) for r in rows]
+
+    async def get_session_summary(
+        self, project_id: str, session_id: str, *, owner_id: Caller
+    ) -> dict[str, Any] | None:
+        """Rolling conversation summary for one session, or ``None`` when
+        there is none yet or ``owner_id`` does not own the row."""
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            if not await self._project_owned(session, project_id, owner_id):
+                return None
+            stmt = select(SessionSummary).where(
+                SessionSummary.project_id == project_id,
+                SessionSummary.session_id == session_id,
+            )
+            if owner_filter is not None:
+                stmt = stmt.where(SessionSummary.owner_id == owner_filter)
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            if row is None:
+                return None
+            return {
+                "project_id": row.project_id,
+                "session_id": row.session_id,
+                "summary": row.summary,
+                "covered_messages": row.covered_messages,
+                "updated_at": row.updated_at.isoformat(),
+            }
+
+    async def upsert_session_summary(
+        self,
+        project_id: str,
+        session_id: str,
+        summary: str,
+        covered_messages: int,
+        *,
+        owner_id: Caller,
+    ) -> None:
+        """Create or update the rolling summary row for a session.
+
+        Stored owner-scoped: the row records the caller's account id (for the
+        SYSTEM marker, the project owner's id) and reads filter on it.
+        """
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                if not await self._project_owned(session, project_id, owner_id):
+                    raise LookupError("Unknown project_id")
+                if owner_filter is None:
+                    project = (
+                        await session.execute(select(Project).where(Project.id == project_id))
+                    ).scalar_one_or_none()
+                    owner_filter = (project.owner_id if project else None) or "system"
+                row = (
+                    await session.execute(
+                        select(SessionSummary).where(
+                            SessionSummary.project_id == project_id,
+                            SessionSummary.session_id == session_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    session.add(SessionSummary(
+                        project_id=project_id,
+                        session_id=session_id,
+                        owner_id=owner_filter,
+                        summary=summary,
+                        covered_messages=covered_messages,
+                    ))
+                else:
+                    if row.owner_id != owner_filter:
+                        raise LookupError("Unknown project_id")
+                    row.summary = summary
+                    row.covered_messages = covered_messages
+                    row.updated_at = datetime.now(timezone.utc)
 
     async def list_chat_sessions(
         self, project_id: str, *, owner_id: Caller

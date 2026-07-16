@@ -42,6 +42,11 @@ Postgres (with pgvector for embeddings).
 - **Vision input**: attach images in the composer; they ride the WebSocket to
   vision models (llava, qwen-vl, llama3.2-vision via Ollama `images`; OpenAI
   content-parts on the cloud fallback)
+- **Context-window management**: when a conversation outgrows
+  `CONTEXT_MAX_TOKENS` (cheap chars/4 token estimate), older turns are folded
+  into a rolling per-session summary by a single LLM call — persisted
+  owner-scoped and reused on later turns — while the last
+  `CONTEXT_KEEP_MESSAGES` messages stay verbatim
 - **Model-driven tool use in normal chat** (Tools toggle, default ON): the model
   decides mid-answer when to call `web_search`, `document_search`, `calculator`
   or (admin + `CODE_EXECUTION_ENABLED`) `code_execution` via the `TOOL_CALL:`
@@ -130,6 +135,7 @@ Key `.env` settings (see `.env.example` for the full list):
 - `CLOUD_API_BASE`, `CLOUD_API_KEY`, `CLOUD_MODEL` — optional cloud fallback
 - `RAG_EMBEDDINGS_ENABLED`, `RAG_EMBEDDING_MODEL` — optional dense retrieval
 - `RAG_TOP_K` — retrieved chunks per turn (always-on retrieval and the `document_search` tool; default 3)
+- `CONTEXT_MAX_TOKENS`, `CONTEXT_KEEP_MESSAGES` — context-window budget (chars/4 estimate) and the verbatim tail once summarization kicks in (defaults 6000 / 8)
 - `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY`, `DEEP_RESEARCH_MAX_PAGES` — deep research
 - `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off by default)
 

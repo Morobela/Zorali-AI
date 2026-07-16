@@ -24,6 +24,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -179,6 +180,33 @@ class MemoryTriple(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
+
+
+class SessionSummary(Base):
+    """Rolling conversation summary for one chat session.
+
+    When a session's history exceeds the context budget
+    (``CONTEXT_MAX_TOKENS``), the turns older than the verbatim window are
+    compressed into this summary once and reused on later turns instead of
+    being recomputed. ``covered_messages`` records how many messages from the
+    start of the session the summary already folds in. Owner-scoped like
+    every other row: reads and writes filter on ``owner_id``.
+    """
+
+    __tablename__ = "session_summaries"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    # JWT sub of the owning account (same convention as memories.owner_id).
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    covered_messages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+    __table_args__ = (UniqueConstraint("project_id", "session_id", name="uq_session_summary"),)
 
 
 class ChatMessage(Base):
