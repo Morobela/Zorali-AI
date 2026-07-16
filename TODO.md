@@ -24,7 +24,6 @@ OpenJarvis-inspired upgrade plan that used to live in this file shipped in PRs
 - [ ] CI: linter (none configured yet), docker builds for both images,
       `pip-audit` + `npm audit --audit-level=high`, Redis service.
 - [ ] Dockerfiles: non-root users, pinned base images.
-- [ ] Pin `frontend/package.json` dependencies (currently all `"latest"`).
 
 ## Product roadmap (from README)
 - [ ] Automatic memory extraction from conversations (with a review UI).

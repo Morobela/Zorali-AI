@@ -103,10 +103,13 @@ PYTHONPATH=backend uvicorn app.main:app --reload --port 8000
 # frontend
 cd frontend && npm ci && npm run dev
 
-# tests (require reachable Postgres AND Redis — the dev compose publishes
-# both on localhost:5432 / localhost:6379)
+# backend tests (require reachable Postgres AND Redis — the dev compose
+# publishes both on localhost:5432 / localhost:6379)
 POSTGRES_HOST=localhost REDIS_URL=redis://localhost:6379/0 \
   PYTHONPATH=backend pytest tests/backend -q
+
+# frontend tests (Vitest — tests/frontend, run from frontend/)
+cd frontend && npm test
 ```
 
 ## Configuration
