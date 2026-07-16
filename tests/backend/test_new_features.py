@@ -54,7 +54,10 @@ def test_chat_rag_context_in_prompt(monkeypatch):
     client.post(f"/api/files/upload?project_id={project['id']}", files=files)
 
     with client.websocket_connect(f'/ws/chat/test-session?ticket={ws_ticket(client)}') as ws:
-        ws.send_json({'mode': 'chat', 'project_id': project['id'], 'message': 'capital of France'})
+        # tools_enabled=False exercises the always-on retrieval path; with
+        # tools on, retrieval happens via the model's document_search calls
+        # instead (covered in test_chat_tool_loop.py).
+        ws.send_json({'mode': 'chat', 'project_id': project['id'], 'message': 'capital of France', 'tools_enabled': False})
         done = None
         while True:
             msg = ws.receive_json()

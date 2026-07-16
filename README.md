@@ -42,6 +42,13 @@ Postgres (with pgvector for embeddings).
 - **Vision input**: attach images in the composer; they ride the WebSocket to
   vision models (llava, qwen-vl, llama3.2-vision via Ollama `images`; OpenAI
   content-parts on the cloud fallback)
+- **Model-driven tool use in normal chat** (Tools toggle, default ON): the model
+  decides mid-answer when to call `web_search`, `document_search`, `calculator`
+  or (admin + `CODE_EXECUTION_ENABLED`) `code_execution` via the `TOOL_CALL:`
+  protocol — capped at 5 calls per turn, streamed to the UI as tool-step chips,
+  with external tool results injected under the same UNTRUSTED framing as RAG
+  evidence. With Tools off, every turn keeps the always-on project-file
+  retrieval (`RAG_TOP_K` chunks)
 - Task-mode commands (`/status`, `/files`, `/search`, `/read`, `/artifact ...`, `/run`, `/help`)
 - Artifact create / list / read / update with version history
 - **Token-bucket rate limiting** (per JWT sub, IP fallback), configurable via settings
@@ -122,6 +129,7 @@ Key `.env` settings (see `.env.example` for the full list):
 - `OLLAMA_HOST`, `OLLAMA_MODEL` — local inference
 - `CLOUD_API_BASE`, `CLOUD_API_KEY`, `CLOUD_MODEL` — optional cloud fallback
 - `RAG_EMBEDDINGS_ENABLED`, `RAG_EMBEDDING_MODEL` — optional dense retrieval
+- `RAG_TOP_K` — retrieved chunks per turn (always-on retrieval and the `document_search` tool; default 3)
 - `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY`, `DEEP_RESEARCH_MAX_PAGES` — deep research
 - `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off by default)
 

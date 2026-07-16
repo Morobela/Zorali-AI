@@ -8,6 +8,8 @@ from app.reality.project_scanner import status_report
 from app.core.config import settings
 from app.core.tickets import redeem_ticket
 from app.db.repositories import repo
+from app.agents.chat_tools import run_chat_tool_loop
+from app.agents.nodes import _build_tools_system_prompt
 from app.agents.orchestrator import route_agent
 from app.learning.trace_store import trace_store, Trace
 from app.memory.knowledge_graph import knowledge_graph
@@ -138,13 +140,25 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
 
             resolved_mode = "deep_research" if data.get("deep_research") else mode
             regenerate = bool(data.get("regenerate"))
+            # Model-driven tool use (default ON): during a normal chat turn the
+            # model itself decides when to call tools (web_search,
+            # document_search, …) via the TOOL_CALL protocol.
+            tools_enabled = bool(data.get("tools_enabled", True))
+            use_tools = tools_enabled and resolved_mode == "chat"
             agent_plan = await route_agent(resolved_mode, message, {
                 "project_id": project_id,
                 "attachments": data.get("attachments", []),
                 "owner_id": owner,
                 "role": user.get("role", "user"),
             })
-            retrieved = await hybrid_retriever.retrieve(message, top_k=3, project_id=project_id, owner_id=owner) or []
+            if use_tools:
+                # The model calls document_search on demand instead of an
+                # unconditional retrieval on every turn.
+                retrieved = []
+            else:
+                retrieved = await hybrid_retriever.retrieve(
+                    message, top_k=settings.rag_top_k, project_id=project_id, owner_id=owner
+                ) or []
 
             # Project context: custom instructions + whether history is persistable.
             # A project the caller does not own behaves like a nonexistent one:
@@ -199,6 +213,18 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
                     ),
                 })
 
+            if use_tools:
+                tools_prompt = _build_tools_system_prompt()
+                if tools_prompt:
+                    system_messages.append({
+                        "role": "system",
+                        "content": tools_prompt + (
+                            f"\n\nThe current project_id for document_search is {project_id!r}. "
+                            "Call document_search when the question needs the project's uploaded files. "
+                            "When you used web_search results, cite them inline with their [W#] markers."
+                        ),
+                    })
+
             # Graph memory: user-curated facts whose entities match this
             # question (plus one hop), e.g. "user —works_at→ acme".
             graph_context = await knowledge_graph.graph_context_for_query(message, project_id, owner)
@@ -218,10 +244,30 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
 
             full = ""
             stopped = False
+            loop_stats: dict = {}
             t_start = time.perf_counter()
 
             async def _pump() -> None:
                 nonlocal full
+                if use_tools:
+                    async def _emit_token(text: str) -> None:
+                        nonlocal full
+                        if not text:
+                            return
+                        full += text
+                        await websocket.send_json({"type": "token", "content": text})
+
+                    result = await run_chat_tool_loop(
+                        prompt_messages,
+                        stream=lambda msgs: stream_llm(msgs, model=selected_model, local_first=local_first),
+                        emit_token=_emit_token,
+                        emit_event=websocket.send_json,
+                        caller=owner,
+                        caller_role=user.get("role", "user"),
+                        project_id=project_id,
+                    )
+                    loop_stats.update(result)
+                    return
                 async for token in stream_llm(prompt_messages, model=selected_model, local_first=local_first):
                     full += token
                     await websocket.send_json({"type": "token", "content": token})
@@ -254,7 +300,13 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
                 await stream_task  # surface provider errors exactly as before
 
             latency_ms = (time.perf_counter() - t_start) * 1000
-            citations = [{k: c[k] for k in ("file_id", "filename", "chunk_id", "score")} for c in retrieved]
+            if use_tools:
+                # Citations come from the document_search / web_search calls
+                # the model actually made this turn.
+                citations = loop_stats.get("citations", [])
+                web_citations = loop_stats.get("web_citations", []) or web_citations
+            else:
+                citations = [{k: c[k] for k in ("file_id", "filename", "chunk_id", "score")} for c in retrieved]
             if persistable and (full or not stopped):
                 await repo.add_chat_message(project_id, session_id, "assistant", full, citations=citations, owner_id=owner)
             await websocket.send_json({

@@ -108,6 +108,36 @@ function CodeBlock({ lang, code }) {
   )
 }
 
+// ─── Tool steps (agent tool calls rendered as inline chips) ────────────────────
+const TOOL_LABELS = {
+  web_search: ['Searching the web', '🌐'],
+  document_search: ['Searching project files', '📄'],
+  calculator: ['Calculating', '🧮'],
+  code_execution: ['Running code', '💻'],
+  file_read: ['Reading file', '📖'],
+  file_write: ['Writing file', '✏️'],
+}
+
+function ToolSteps({ steps }) {
+  if (!steps?.length) return null
+  return (
+    <div className="tool-steps">
+      {steps.map((s, i) => {
+        const [label, icon] = TOOL_LABELS[s.tool] || [s.tool, '🔧']
+        return (
+          <span
+            key={i}
+            className={`tool-chip${s.done ? (s.ok ? ' done' : ' failed') : ''}`}
+            title={s.inputs ? JSON.stringify(s.inputs) : undefined}
+          >
+            {icon} {label}{s.done ? ` → ${s.summary}` : '…'}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Message component ─────────────────────────────────────────────────────────
 function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
   const isUser = message.role === 'user'
@@ -134,6 +164,7 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
             ))}
           </div>
         )}
+        {!isUser && <ToolSteps steps={message.steps} />}
         {isUser
           ? <div className="bubble-text"><p>{content}{message.streaming && <span className="stream-cursor" />}</p></div>
           : <div className="bubble-text">
@@ -264,6 +295,8 @@ export default function Zorali() {
   const [availableModels, setAvailableModels] = useState(['llama3.2:1b'])
   const [localFirst, setLocalFirst] = useState(true)
   const [deepResearch, setDeepResearch] = useState(false)
+  // Model-driven tool use (web search, project files, …) — default ON.
+  const [toolsEnabled, setToolsEnabled] = useState(true)
   const [ollamaOk, setOllamaOk] = useState(null)
   const [providerStatus, setProviderStatus] = useState(null)
   const socketRef = useRef(null)
@@ -484,6 +517,33 @@ export default function Zorali() {
           }
           loadSessions()
         }
+        if (msg.type === 'tool_use') {
+          setMessages(prev => {
+            const copy = [...prev]
+            const last = copy[copy.length - 1]
+            if (last?.role === 'assistant' && last.streaming) {
+              last.steps = [...(last.steps || []), { tool: msg.tool, inputs: msg.inputs, done: false }]
+            }
+            return copy
+          })
+        }
+        if (msg.type === 'tool_result') {
+          setMessages(prev => {
+            const copy = [...prev]
+            const last = copy[copy.length - 1]
+            if (last?.role === 'assistant' && last.streaming) {
+              const steps = [...(last.steps || [])]
+              for (let i = steps.length - 1; i >= 0; i--) {
+                if (steps[i].tool === msg.tool && !steps[i].done) {
+                  steps[i] = { ...steps[i], done: true, summary: msg.summary, ok: msg.ok !== false }
+                  break
+                }
+              }
+              last.steps = steps
+            }
+            return copy
+          })
+        }
         if (msg.type === 'status') {
           setPanelData(msg.data)
           setPanel('status')
@@ -531,6 +591,7 @@ export default function Zorali() {
       model: selectedModel,
       local_first: localFirst,
       deep_research: deepResearch,
+      tools_enabled: toolsEnabled,
       attachments: [
         ...attachedFiles,
         ...images.map(i => ({ type: 'image', name: i.name, data: i.data })),
@@ -843,6 +904,13 @@ export default function Zorali() {
           </select>
           <button className={`conn-btn${localFirst ? ' connected' : ''}`} onClick={() => setLocalFirst(v => !v)}>
             {localFirst ? '●' : '○'} Local-first
+          </button>
+          <button
+            className={`conn-btn${toolsEnabled ? ' connected' : ''}`}
+            onClick={() => setToolsEnabled(v => !v)}
+            title="Let the model call tools mid-answer (web search, project files, calculator)"
+          >
+            {toolsEnabled ? '●' : '○'} Tools
           </button>
           <button className={`conn-btn${deepResearch ? ' connected' : ''}`} onClick={() => setDeepResearch(v => !v)}>
             {deepResearch ? '●' : '○'} Deep Research
