@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     # How many retrieved chunks reach the prompt — both for the always-on
     # retrieval on tools-off turns and for the document_search tool.
     rag_top_k: int = Field(default=3, ge=1, le=50)
+
+    # Context-window management: when a session's history exceeds this token
+    # budget, older turns are folded into a persisted rolling summary. Token
+    # counts use the cheap chars/4 estimator (see app.memory.context_pruner).
+    context_max_tokens: int = Field(default=6000, ge=500)
+    # How many trailing messages always stay verbatim once summarization kicks
+    # in (8 messages ≈ the last 4 user/assistant exchanges).
+    context_keep_messages: int = Field(default=8, ge=2)
     # Hybrid retrieval (2026 production-RAG: hybrid fusion + reranking + contextual)
     rag_rerank_enabled: bool = True
     rag_candidate_pool: int = Field(default=20, ge=1, le=1000)
