@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     # retrieval on tools-off turns and for the document_search tool.
     rag_top_k: int = Field(default=3, ge=1, le=50)
 
+    # Upload size ceiling for /api/files/upload, in megabytes.
+    max_upload_mb: int = Field(default=25, ge=1, le=500)
+
     # Conversation titles: after the first assistant reply in a session, one
     # non-streamed LLM call names the conversation for the sidebar.
     auto_titles_enabled: bool = True

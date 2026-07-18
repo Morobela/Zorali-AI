@@ -1086,7 +1086,7 @@ export default function Zorali() {
               type="file"
               style={{ display: 'none' }}
               multiple
-              accept=".txt,.md,.json,.csv,.py,.js,.ts,.jsx,.tsx,.html,.css,.toml,.yaml,.yml,.xml,.sh,.pdf"
+              accept=".txt,.md,.json,.csv,.py,.js,.ts,.jsx,.tsx,.html,.css,.toml,.yaml,.yml,.xml,.sh,.pdf,.docx,.xlsx"
               onChange={handleFileSelect}
             />
             <input

@@ -28,7 +28,10 @@ Postgres (with pgvector for embeddings).
 - **Fully asynchronous file ingestion**: uploads return immediately; extraction
   (pypdf in a worker thread), chunking and embedding all run in a background
   task with a pollable `indexing_status` (`queued → indexing → ready | failed`)
-- Native **PDF text extraction** via `pypdf`
+- Native **PDF text extraction** via `pypdf`, plus **.docx** (python-docx:
+  paragraphs + tables) and **.xlsx** (openpyxl: sheet-name headers +
+  tab-separated rows) — all extracted in the background ingestion task;
+  upload ceiling configurable via `MAX_UPLOAD_MB` (default 25)
 - **Graph memory (GraphRAG-style)**: facts are extracted from saved memories as
   (subject —relation→ object) triples; retrieval matches query entities and
   expands one hop, and matching facts are injected into the chat prompt
@@ -152,6 +155,7 @@ Key `.env` settings (see `.env.example` for the full list):
 - `CONTEXT_MAX_TOKENS`, `CONTEXT_KEEP_MESSAGES` — context-window budget (chars/4 estimate) and the verbatim tail once summarization kicks in (defaults 6000 / 8)
 - `AUTO_MEMORY_ENABLED` — automatic memory-candidate extraction after chat turns (default true)
 - `AUTO_TITLES_ENABLED` — one-shot LLM conversation titles after the first reply (default true)
+- `MAX_UPLOAD_MB` — upload size ceiling for `/api/files/upload` (default 25)
 - `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY`, `DEEP_RESEARCH_MAX_PAGES` — deep research
 - `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off by default)
 
