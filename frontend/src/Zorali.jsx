@@ -725,13 +725,31 @@ export default function Zorali() {
   async function loadMemory() {
     setPanelLoading(true)
     try {
-      const data = await apiGet(`/api/project/${activeProjectId}/chats`)
-      setPanelData({ type: 'memory', items: data })
+      const [data, pending] = await Promise.all([
+        apiGet(`/api/project/${activeProjectId}/chats`),
+        apiGet(`/api/memory/pending?project_id=${activeProjectId}`).catch(() => []),
+      ])
+      setPanelData({ type: 'memory', items: data, pending })
     } catch (e) {
       showToast(`Failed to load memory: ${e.message}`, 'error')
     } finally {
       setPanelLoading(false)
     }
+  }
+
+  async function acceptMemory(id) {
+    try {
+      await apiPost(`/api/memory/${id}/accept`, {})
+      showToast('Memory saved', 'success')
+      loadMemory()
+    } catch (e) { showToast(`Accept failed: ${e.message}`, 'error') }
+  }
+
+  async function rejectMemory(id) {
+    try {
+      await apiPost(`/api/memory/${id}/reject`, {})
+      loadMemory()
+    } catch (e) { showToast(`Reject failed: ${e.message}`, 'error') }
   }
 
   async function saveMemory() {
@@ -1076,6 +1094,20 @@ export default function Zorali() {
               )}
 
               {/* Memory panel */}
+              {panel === 'memory' && panelData?.pending?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div className="section-title">Pending memories — review</div>
+                  {panelData.pending.map(m => (
+                    <div key={m.id} className="memory-item">
+                      <div className="memory-content">{m.text}</div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                        <button className="toolbar-btn" onClick={() => acceptMemory(m.id)}>✓ Accept</button>
+                        <button className="toolbar-btn" onClick={() => rejectMemory(m.id)}>✕ Reject</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {panel === 'memory' && panelData?.items && (
                 panelData.items.length === 0
                   ? <p style={{ color: 'var(--zorali-muted)', fontSize: 13 }}>No chat history yet.</p>

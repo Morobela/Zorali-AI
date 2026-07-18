@@ -39,6 +39,44 @@ async def save_memory(payload: MemoryIn, _user=user_or_above):
     return {**memory, "triples": triples, "embedded": embedding is not None}
 
 
+@router.get("/pending")
+async def pending_memories(project_id: str, _user=user_or_above):
+    """Auto-extracted candidates awaiting review. Pending rows are never
+    searchable and never enter prompts until accepted."""
+    return await repo.list_memories(project_id, _user["sub"], status="pending")
+
+
+@router.post("/{memory_id}/accept")
+async def accept_memory(memory_id: str, _user=user_or_above):
+    """Promote a pending candidate to a normal memory: embed (when enabled)
+    and extract graph triples exactly like an explicitly saved memory."""
+    embedding = None
+    embedding_model = None
+    current = await repo.activate_memory(memory_id, _user["sub"])
+    if current is None:
+        return {"accepted": False}
+    if settings.rag_embeddings_enabled:
+        from app.memory.embeddings import embed_texts
+
+        vectors = await embed_texts([current["text"]], task="document")
+        if vectors:
+            embedding = vectors[0]
+            embedding_model = settings.rag_embedding_model
+            current = await repo.activate_memory(
+                memory_id, _user["sub"], embedding=embedding, embedding_model=embedding_model
+            )
+    triples = await knowledge_graph.extract_and_store(
+        current["text"], current["project_id"], _user["sub"], current["id"]
+    )
+    return {"accepted": True, **current, "triples": triples, "embedded": embedding is not None}
+
+
+@router.post("/{memory_id}/reject")
+async def reject_memory(memory_id: str, _user=user_or_above):
+    """Reject a pending candidate — the row is deleted outright."""
+    return {"rejected": await repo.delete_memory(memory_id, _user["sub"])}
+
+
 @router.get("/search")
 async def search_memory(project_id: str, q: str, _user=user_or_above):
     return await repo.search_memories(project_id, _user["sub"], q)

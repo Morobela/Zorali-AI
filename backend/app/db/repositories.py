@@ -91,6 +91,7 @@ def _memory_dict(row: Memory, include_embedding: bool = False) -> dict[str, Any]
         "project_id": row.project_id,
         "user_id": row.owner_id,
         "text": row.text,
+        "status": row.status,
         "created_at": _iso(row.created_at),
     }
     # Embeddings are large float arrays for the retrieval layer only — they
@@ -675,6 +676,7 @@ class Repository:
         text: str,
         embedding: list[float] | None = None,
         embedding_model: str | None = None,
+        status: str = "active",
     ) -> dict[str, Any]:
         async with SessionLocal() as session:
             async with session.begin():
@@ -685,22 +687,56 @@ class Repository:
                     text=text,
                     embedding=embedding,
                     embedding_model=embedding_model,
+                    status=status,
                 )
                 session.add(row)
             return _memory_dict(row)
 
     async def list_memories(
-        self, project_id: str, user_id: str, include_embedding: bool = False
+        self,
+        project_id: str,
+        user_id: str,
+        include_embedding: bool = False,
+        status: str | None = "active",
     ) -> list[dict[str, Any]]:
+        """List a user's memories. Defaults to ``status="active"`` so search,
+        semantic recall and prompt paths never see pending candidates; pass
+        ``status="pending"`` for the review queue or ``None`` for all rows."""
         async with SessionLocal() as session:
-            rows = (
-                await session.execute(
-                    select(Memory)
-                    .where(Memory.project_id == project_id, Memory.owner_id == user_id)
-                    .order_by(Memory.created_at)
-                )
-            ).scalars().all()
+            stmt = select(Memory).where(
+                Memory.project_id == project_id, Memory.owner_id == user_id
+            )
+            if status is not None:
+                stmt = stmt.where(Memory.status == status)
+            rows = (await session.execute(stmt.order_by(Memory.created_at))).scalars().all()
             return [_memory_dict(r, include_embedding=include_embedding) for r in rows]
+
+    async def activate_memory(
+        self,
+        memory_id: str,
+        user_id: str,
+        embedding: list[float] | None = None,
+        embedding_model: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Promote a pending candidate to a normal (active) memory.
+
+        Owner-scoped: another account's id returns ``None``. Optionally
+        attaches the embedding computed at accept time.
+        """
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = (
+                    await session.execute(
+                        select(Memory).where(Memory.id == memory_id, Memory.owner_id == user_id)
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    return None
+                row.status = "active"
+                if embedding is not None:
+                    row.embedding = embedding
+                    row.embedding_model = embedding_model
+            return _memory_dict(row)
 
     # ── Memory graph (triples) ──────────────────────────────────────────────
 

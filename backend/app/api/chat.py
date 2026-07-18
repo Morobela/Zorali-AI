@@ -12,6 +12,7 @@ from app.agents.chat_tools import run_chat_tool_loop
 from app.agents.nodes import _build_tools_system_prompt
 from app.agents.orchestrator import route_agent
 from app.learning.trace_store import trace_store, Trace
+from app.memory.auto_extract import auto_memory
 from app.memory.compression import rolling_summarizer
 from app.memory.knowledge_graph import knowledge_graph
 from app.memory.retrieval import hybrid_retriever
@@ -340,6 +341,17 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
                 "fallback_used": provider_router.fallback_used,
                 "stopped": stopped,
             })
+
+            # Automatic memory: extract durable-fact candidates from the
+            # user's message into the pending review queue. Runs after the
+            # done frame so answer latency is unaffected; awaited (not
+            # fire-and-forget) so it cannot be cancelled mid-write and tests
+            # observe it deterministically. Never raises.
+            if not regenerate:
+                await auto_memory.process_turn(
+                    project_id, message, owner,
+                    model=selected_model, local_first=local_first,
+                )
 
             trace_store.record(Trace(
                 trace_id=str(uuid4()),
