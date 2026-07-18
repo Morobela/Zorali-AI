@@ -168,9 +168,13 @@ Key `.env` settings (see `.env.example` for the full list):
   `POST /api/artifacts/{artifact_id}/run` (sandbox, admin + `CODE_EXECUTION_ENABLED`)
 - `POST /api/memory`, `GET /api/memory/search`, `GET /api/memory/semantic-search`,
   `GET /api/memory/graph`, `DELETE /api/memory/{id}`
+- `PATCH/DELETE /api/project/{id}/sessions/{session_id}` — rename/delete a
+  conversation; `GET /api/project/{id}/search?q=` — chat search
 - `POST /api/ws-ticket` — exchange the access token for a single-use WebSocket
   auth ticket (Redis-backed, 60s TTL, consumed on connect)
 - `WS /ws/chat/{session_id}?ticket=<ticket>` (JWTs are not accepted in the URL)
+- `WS /mcp?ticket=<ticket>` — MCP server exposing the tool registry
+  (`tools/list` + `tools/call`, same role gates and caller scoping as chat)
 
 ## Security notes
 - JWT authentication and role-based access control on every data route.

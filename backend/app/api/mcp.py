@@ -18,6 +18,10 @@ async def mcp(websocket: WebSocket, ticket: str = Query(default=None)):
     try:
         while True:
             msg = await websocket.receive_json()
-            await websocket.send_json(await mcp_server.handle_message(msg))
+            # Tools execute on behalf of the ticket's user: caller context and
+            # role ride into registry.execute, same as the chat tool loop.
+            await websocket.send_json(await mcp_server.handle_message(
+                msg, caller=user["sub"], caller_role=user.get("role", "user"),
+            ))
     except WebSocketDisconnect:
         pass
