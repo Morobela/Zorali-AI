@@ -26,7 +26,6 @@ OpenJarvis-inspired upgrade plan that used to live in this file shipped in PRs
 - [ ] Dockerfiles: non-root users, pinned base images.
 
 ## Product roadmap (from README)
-- [ ] Automatic memory extraction from conversations (with a review UI).
 - [ ] Artifact side-panel live preview/rendering.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
 - [ ] Retrieval quality metrics in CI (Recall@5, MRR) on the RAG eval corpus.

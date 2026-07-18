@@ -23,6 +23,10 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 # production limits would 429 mid-run, so give tests an effectively unlimited bucket.
 os.environ.setdefault("RATE_LIMIT_CAPACITY", "100000")
 os.environ.setdefault("RATE_LIMIT_REFILL", "100000")
+# Automatic memory extraction can fall back to a real LLM call after any chat
+# turn; keep it off suite-wide so unrelated WS tests never touch a provider.
+# test_auto_memory.py re-enables it per-test with monkeypatched fakes.
+os.environ.setdefault("AUTO_MEMORY_ENABLED", "false")
 
 from sqlalchemy import delete, text
 

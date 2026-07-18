@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     # retrieval on tools-off turns and for the document_search tool.
     rag_top_k: int = Field(default=3, ge=1, le=50)
 
+    # Automatic memory extraction: after each completed chat turn, durable
+    # facts in the user's message become pending memory candidates (pattern
+    # extractor + LLM fallback) awaiting Accept/Reject in the Memory panel.
+    auto_memory_enabled: bool = True
+
     # Context-window management: when a session's history exceeds this token
     # budget, older turns are folded into a persisted rolling summary. Token
     # counts use the cheap chars/4 estimator (see app.memory.context_pruner).

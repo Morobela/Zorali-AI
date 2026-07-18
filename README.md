@@ -42,6 +42,13 @@ Postgres (with pgvector for embeddings).
 - **Vision input**: attach images in the composer; they ride the WebSocket to
   vision models (llava, qwen-vl, llama3.2-vision via Ollama `images`; OpenAI
   content-parts on the cloud fallback)
+- **Automatic memory with review** (`AUTO_MEMORY_ENABLED`, default on): after
+  each chat turn, durable facts in your message ("I work at Acme…") become
+  pending candidates — pattern extractor first, one LLM fallback call when the
+  patterns miss — deduplicated against existing memories and shown in the
+  Memory panel for Accept/Reject. Pending candidates are never searchable and
+  never enter prompts; accepting one stores it like a hand-saved memory
+  (graph triples and all)
 - **Context-window management**: when a conversation outgrows
   `CONTEXT_MAX_TOKENS` (cheap chars/4 token estimate), older turns are folded
   into a rolling per-session summary by a single LLM call — persisted
@@ -136,6 +143,7 @@ Key `.env` settings (see `.env.example` for the full list):
 - `RAG_EMBEDDINGS_ENABLED`, `RAG_EMBEDDING_MODEL` — optional dense retrieval
 - `RAG_TOP_K` — retrieved chunks per turn (always-on retrieval and the `document_search` tool; default 3)
 - `CONTEXT_MAX_TOKENS`, `CONTEXT_KEEP_MESSAGES` — context-window budget (chars/4 estimate) and the verbatim tail once summarization kicks in (defaults 6000 / 8)
+- `AUTO_MEMORY_ENABLED` — automatic memory-candidate extraction after chat turns (default true)
 - `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY`, `DEEP_RESEARCH_MAX_PAGES` — deep research
 - `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off by default)
 
@@ -196,7 +204,6 @@ Key `.env` settings (see `.env.example` for the full list):
 - The code sandbox is process isolation, not a container (see Security notes).
 
 ## Roadmap
-1. Automatic memory extraction from conversations (with a review UI).
-2. Artifact side-panel live preview/rendering.
-3. Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
-4. Richer CI and e2e tests including retrieval quality metrics (Recall@5, MRR).
+1. Artifact side-panel live preview/rendering.
+2. Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
+3. Richer CI and e2e tests including retrieval quality metrics (Recall@5, MRR).

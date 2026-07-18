@@ -22,7 +22,7 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | File uploads + retrieval with citations (RAG) | ChatGPT, Claude | ✅ | hybrid BM25/TF-IDF/RRF + optional dense (pgvector) |
 | PDF understanding | ChatGPT, Claude | ✅ | pypdf extraction |
 | Artifacts (versioned side documents) | Claude Artifacts, ChatGPT Canvas | 🟡 | create/edit/version/▶ Run panel; no live preview/rendering |
-| Memory (user-curated, searchable) | ChatGPT Memory, Claude Memory | 🟡 | save/search/delete + **graph memory** (triples, 1-hop retrieval, prompt injection) + optional dense embeddings; no automatic extraction from chat yet |
+| Memory (user-curated + automatic, searchable) | ChatGPT Memory, Claude Memory | ✅ | save/search/delete + **graph memory** (triples, 1-hop retrieval, prompt injection) + optional dense embeddings + **automatic extraction from chat** (`AUTO_MEMORY_ENABLED`): pattern extractor + LLM fallback stores pending candidates for Accept/Reject review; pending rows never enter prompts |
 | Voice input (speech-to-text) | ChatGPT Voice, Grok Voice, JARVIS | ✅ | Web Speech API mic (Chrome/Edge; browser-dependent) |
 | Spoken replies (text-to-speech) | ChatGPT Voice, Grok companions, JARVIS | ✅ | speechSynthesis toggle + per-message 🔊 |
 | Full-duplex conversational voice (interruptible, emotive) | ChatGPT Advanced Voice, Grok companions | 🗺 | needs local STT/TTS models (whisper.cpp + Piper) |
@@ -91,14 +91,11 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 
 ## Recommended next steps (priority order)
 
-1. **Automatic memory** — extract durable facts from conversations into the
-   memory store and graph (ChatGPT-style), with a review UI. The triple
-   extractor already exists; it just needs to run on chat turns.
-2. **Iterative deep research** — refine queries across multiple search rounds
+1. **Iterative deep research** — refine queries across multiple search rounds
    (search → read → re-search) on top of the shipped single-round pipeline.
-3. **Local voice stack** — whisper.cpp + Piper containers for duplex voice
+2. **Local voice stack** — whisper.cpp + Piper containers for duplex voice
    independent of browser support.
-4. **Reasoning toggle** — surface "think step by step" budget for reasoning
+3. **Reasoning toggle** — surface "think step by step" budget for reasoning
    models pulled in Ollama.
-5. **Proactive routines** — scheduled project scans + notification surface
+4. **Proactive routines** — scheduled project scans + notification surface
    (the JARVIS "sir, the build is failing" moment); backend task queue exists.

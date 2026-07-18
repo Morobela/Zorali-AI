@@ -147,6 +147,12 @@ class Memory(Base):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     # JWT sub of the owning account (or a caller-supplied id, e.g. "local").
     owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # "active" memories are searchable and feed the knowledge graph;
+    # "pending" rows are auto-extracted candidates awaiting the user's
+    # Accept/Reject review and are never injected into prompts.
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active", index=True
+    )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # Optional dense vector for semantic recall (mirrors Chunk.embedding);
     # NULL for memories saved while RAG_EMBEDDINGS_ENABLED was off.
