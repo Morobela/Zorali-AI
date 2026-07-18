@@ -21,7 +21,7 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | Projects / workspaces | ChatGPT Projects, Claude Projects | ✅ | projects + files + artifacts + chats per project |
 | Custom instructions / project instructions / personas | ChatGPT, Claude, Grok | ✅ | `projects.system_prompt`, ⚙ on project, threaded as system msg |
 | File uploads + retrieval with citations (RAG) | ChatGPT, Claude | ✅ | hybrid BM25/TF-IDF/RRF + optional dense (pgvector) |
-| PDF understanding | ChatGPT, Claude | ✅ | pypdf extraction |
+| PDF / Word / Excel understanding | ChatGPT, Claude | ✅ | pypdf, python-docx (paragraphs + tables), openpyxl (sheet headers + tab-separated rows); upload ceiling configurable via `MAX_UPLOAD_MB` (default 25) |
 | Artifacts (versioned side documents) | Claude Artifacts, ChatGPT Canvas | 🟡 | create/edit/version/▶ Run panel; no live preview/rendering |
 | Memory (user-curated + automatic, searchable) | ChatGPT Memory, Claude Memory | ✅ | save/search/delete + **graph memory** (triples, 1-hop retrieval, prompt injection) + optional dense embeddings + **automatic extraction from chat** (`AUTO_MEMORY_ENABLED`): pattern extractor + LLM fallback stores pending candidates for Accept/Reject review; pending rows never enter prompts |
 | Voice input (speech-to-text) | ChatGPT Voice, Grok Voice, JARVIS | ✅ | Web Speech API mic (Chrome/Edge; browser-dependent) |

@@ -12,8 +12,12 @@ _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/files')
 
-TEXT_EXTS = {'.txt', '.md', '.json', '.csv', '.py', '.js', '.ts', '.html', '.css', '.jsx', '.tsx', '.toml', '.yaml', '.yml', '.xml', '.sh', '.pdf'}
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+TEXT_EXTS = {'.txt', '.md', '.json', '.csv', '.py', '.js', '.ts', '.html', '.css', '.jsx', '.tsx', '.toml', '.yaml', '.yml', '.xml', '.sh', '.pdf', '.docx', '.xlsx'}
+
+
+def _max_upload_bytes() -> int:
+    """Upload size ceiling from settings (MAX_UPLOAD_MB, default 25)."""
+    return settings.max_upload_mb * 1024 * 1024
 
 
 def validate_extension(filename: str) -> None:
@@ -40,6 +44,38 @@ def extract_text(filename: str, content: bytes) -> str:
             return extracted
         except Exception:
             return '[PDF uploaded — could not extract text.]'
+    if lower.endswith('.docx'):
+        try:
+            import io
+            from docx import Document
+            doc = Document(io.BytesIO(content))
+            parts = [p.text for p in doc.paragraphs if p.text.strip()]
+            for table in doc.tables:
+                for row in table.rows:
+                    parts.append('\t'.join(cell.text for cell in row.cells))
+            extracted = '\n'.join(parts)
+            return extracted if extracted.strip() else '[DOCX uploaded — no extractable text.]'
+        except Exception:
+            return '[DOCX uploaded — could not extract text.]'
+    if lower.endswith('.xlsx'):
+        try:
+            import io
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            parts = []
+            sheet_count = 0
+            for ws in wb.worksheets:
+                sheet_count += 1
+                parts.append(f'# Sheet: {ws.title}')
+                for row in ws.iter_rows(values_only=True):
+                    cells = ['' if v is None else str(v) for v in row]
+                    if any(c.strip() for c in cells):
+                        parts.append('\t'.join(cells))
+            wb.close()
+            # A workbook with only sheet headers has no searchable content.
+            return '\n'.join(parts) if len(parts) > sheet_count else '[XLSX uploaded — no extractable cells.]'
+        except Exception:
+            return '[XLSX uploaded — could not extract text.]'
     for ext in TEXT_EXTS:
         if lower.endswith(ext):
             return content.decode('utf-8', errors='ignore')
@@ -131,8 +167,8 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
         raise HTTPException(status_code=400, detail='Hidden files are blocked')
     validate_extension(safe_name)
     raw = await file.read()
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail='File too large (max 5 MB)')
+    if len(raw) > _max_upload_bytes():
+        raise HTTPException(status_code=400, detail=f'File too large (max {settings.max_upload_mb} MB)')
 
     # Save the file record immediately so the caller gets a file_id back;
     # extraction, chunking and embedding all happen in a background task so a
