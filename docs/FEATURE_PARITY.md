@@ -12,10 +12,11 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 
 | Feature | Reference assistant | Zorali status | Where |
 |---|---|---|---|
-| Streaming chat with markdown + code blocks + copy | All | ✅ | WS `/ws/chat/{session}`, `Zorali.jsx` renderer |
-| Conversation history list ("Recent"), switch + resume | ChatGPT/Claude/Grok | ✅ | `GET /api/project/{id}/sessions`, sidebar; client-side search over previews (server-side search on roadmap) |
+| Streaming chat with markdown + code blocks + copy | All | ✅ | WS `/ws/chat/{session}`; react-markdown + GFM (tables, task lists) + syntax highlighting + KaTeX math, raw HTML never rendered, copy button on code blocks |
+| Conversation history list: titles, rename, delete, search | ChatGPT/Claude/Grok | ✅ | `chat_sessions` table + one-shot LLM titles (`AUTO_TITLES_ENABLED`); PATCH/DELETE `/api/project/{id}/sessions/{sid}`; debounced server-side search (`GET /api/project/{id}/search?q=`) |
 | Stop generation mid-answer | All | ✅ | WS `{"mode":"stop"}`, ⏹ Stop button |
 | Regenerate last response | All | ✅ | WS `regenerate: true`, ↻ button |
+| Edit & resend last message | ChatGPT/Claude | ✅ | ✎ on the last user message; replaces the last exchange (full branching out of scope) |
 | Copy message | All | ✅ | message action row |
 | Projects / workspaces | ChatGPT Projects, Claude Projects | ✅ | projects + files + artifacts + chats per project |
 | Custom instructions / project instructions / personas | ChatGPT, Claude, Grok | ✅ | `projects.system_prompt`, ⚙ on project, threaded as system msg |
@@ -30,7 +31,7 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | Deep research (multi-pass, source-cited reports) | Grok DeepSearch, ChatGPT/Claude deep research | ✅ | search → fetch top pages → synthesize with clickable `[W#]` citations; iterative query refinement on roadmap |
 | Multi-user accounts, auth, private data | All (hosted) | ✅ | JWT + RBAC + per-user isolation, Postgres |
 | Model picker | All | ✅ | picker lists models installed in Ollama |
-| Reasoning/extended thinking toggle | Claude, Grok Think, ChatGPT o-series | 🗺 | dependent on local model support (e.g. deepseek-r1, qwq via Ollama) |
+| Reasoning display (thinking models) | Claude, Grok Think, ChatGPT o-series | ✅ for supported models | `<think>…</think>` output (deepseek-r1, qwen3 via Ollama) renders as a collapsible Thinking block, excluded from TTS and stored messages |
 | Vision (image understanding in chat) | All | ✅ | 🖼 attach in composer → Ollama `images` field (llava/qwen-vl/llama3.2-vision) or OpenAI content parts on cloud fallback |
 | Image generation | ChatGPT (DALL·E), Grok (Aurora) | ✖ for now | no production-grade local image model integration; would need SD/ComfyUI service |
 | Video generation | Grok Imagine | ✖ | out of scope |
@@ -95,7 +96,5 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
    (search → read → re-search) on top of the shipped single-round pipeline.
 2. **Local voice stack** — whisper.cpp + Piper containers for duplex voice
    independent of browser support.
-3. **Reasoning toggle** — surface "think step by step" budget for reasoning
-   models pulled in Ollama.
-4. **Proactive routines** — scheduled project scans + notification surface
+3. **Proactive routines** — scheduled project scans + notification surface
    (the JARVIS "sir, the build is failing" moment); backend task queue exists.

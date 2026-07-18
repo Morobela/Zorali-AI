@@ -19,10 +19,20 @@ from string import punctuation
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.core.caller import Caller, resolve_owner_filter
-from app.db.models import Artifact, ChatMessage, Chunk, File, Memory, MemoryTriple, Project, SessionSummary
+from app.db.models import (
+    Artifact,
+    ChatMessage,
+    ChatSession,
+    Chunk,
+    File,
+    Memory,
+    MemoryTriple,
+    Project,
+    SessionSummary,
+)
 from app.db.session import SessionLocal
 
 STOPWORDS = {
@@ -256,6 +266,7 @@ class Repository:
             async with session.begin():
                 if not await self._project_owned(session, project_id, owner_id):
                     raise LookupError("Unknown project_id")
+                await self._ensure_chat_session(session, project_id, session_id, owner_id)
                 row = ChatMessage(
                     id=str(uuid4()),
                     project_id=project_id,
@@ -354,34 +365,227 @@ class Repository:
                     row.covered_messages = covered_messages
                     row.updated_at = datetime.now(timezone.utc)
 
+    @staticmethod
+    async def _ensure_chat_session(session, project_id: str, session_id: str, owner_id: Caller) -> None:
+        """Create the chat_sessions row for a conversation if missing (called
+        inside an open transaction, after the ownership check passed)."""
+        exists = (
+            await session.execute(
+                select(ChatSession.id).where(
+                    ChatSession.project_id == project_id,
+                    ChatSession.session_id == session_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            return
+        owner_filter = resolve_owner_filter(owner_id)
+        if owner_filter is None:
+            project = (
+                await session.execute(select(Project).where(Project.id == project_id))
+            ).scalar_one_or_none()
+            owner_filter = (project.owner_id if project else None) or "system"
+        session.add(ChatSession(project_id=project_id, session_id=session_id, owner_id=owner_filter))
+
     async def list_chat_sessions(
         self, project_id: str, *, owner_id: Caller
     ) -> list[dict[str, Any]] | None:
         """List a project's chat sessions (ChatGPT-style conversation list),
-        newest-activity first. Each entry: {session_id, preview, message_count,
-        last_at}. Returns ``None`` when ``owner_id`` does not own the project."""
+        newest-activity first, from the chat_sessions table plus per-session
+        message aggregates. Each entry: {session_id, title, preview,
+        message_count, last_at}. ``None`` when ``owner_id`` does not own the
+        project."""
         async with SessionLocal() as session:
             if not await self._project_owned(session, project_id, owner_id):
                 return None
+            sessions = (
+                await session.execute(
+                    select(ChatSession).where(ChatSession.project_id == project_id)
+                )
+            ).scalars().all()
+            stats = {
+                sid: {"message_count": count, "last_at": _iso(last_at)}
+                for sid, count, last_at in (
+                    await session.execute(
+                        select(
+                            ChatMessage.session_id,
+                            func.count(ChatMessage.id),
+                            func.max(ChatMessage.created_at),
+                        )
+                        .where(ChatMessage.project_id == project_id)
+                        .group_by(ChatMessage.session_id)
+                    )
+                ).all()
+            }
+            # Iterating newest→oldest means the last write per session_id is
+            # its oldest user message — the conversation opener as preview.
+            previews = {
+                sid: content[:80]
+                for sid, content in (
+                    await session.execute(
+                        select(ChatMessage.session_id, ChatMessage.content)
+                        .where(ChatMessage.project_id == project_id, ChatMessage.role == "user")
+                        .order_by(ChatMessage.seq.desc())
+                    )
+                ).all()
+            }
+            entries = []
+            for row in sessions:
+                stat = stats.get(row.session_id)
+                if stat is None:
+                    continue  # session row without messages (all deleted)
+                entries.append({
+                    "session_id": row.session_id,
+                    "title": row.title,
+                    "preview": previews.get(row.session_id, ""),
+                    **stat,
+                })
+            entries.sort(key=lambda s: s["last_at"] or "", reverse=True)
+            return entries
+
+    async def rename_chat_session(
+        self, project_id: str, session_id: str, title: str, *, owner_id: Caller
+    ) -> bool:
+        """Set a conversation's title. Returns False when the caller does not
+        own the project or the session does not exist (routers → 404)."""
+        async with SessionLocal() as session:
+            async with session.begin():
+                if not await self._project_owned(session, project_id, owner_id):
+                    return False
+                row = (
+                    await session.execute(
+                        select(ChatSession).where(
+                            ChatSession.project_id == project_id,
+                            ChatSession.session_id == session_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    return False
+                row.title = title.strip()[:255]
+                row.updated_at = datetime.now(timezone.utc)
+                return True
+
+    async def set_session_title_if_empty(
+        self, project_id: str, session_id: str, title: str, *, owner_id: Caller
+    ) -> bool:
+        """Store an auto-generated title, but never clobber a user rename."""
+        async with SessionLocal() as session:
+            async with session.begin():
+                if not await self._project_owned(session, project_id, owner_id):
+                    return False
+                row = (
+                    await session.execute(
+                        select(ChatSession).where(
+                            ChatSession.project_id == project_id,
+                            ChatSession.session_id == session_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if row is None or row.title:
+                    return False
+                row.title = title.strip()[:255]
+                row.updated_at = datetime.now(timezone.utc)
+                return True
+
+    async def delete_chat_session(
+        self, project_id: str, session_id: str, *, owner_id: Caller
+    ) -> bool:
+        """Delete a conversation: its messages, rolling summary and session
+        row. Returns False when the caller does not own the project or the
+        session does not exist (routers → 404)."""
+        async with SessionLocal() as session:
+            async with session.begin():
+                if not await self._project_owned(session, project_id, owner_id):
+                    return False
+                row = (
+                    await session.execute(
+                        select(ChatSession).where(
+                            ChatSession.project_id == project_id,
+                            ChatSession.session_id == session_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    return False
+                await session.execute(
+                    delete(ChatMessage).where(
+                        ChatMessage.project_id == project_id,
+                        ChatMessage.session_id == session_id,
+                    )
+                )
+                await session.execute(
+                    delete(SessionSummary).where(
+                        SessionSummary.project_id == project_id,
+                        SessionSummary.session_id == session_id,
+                    )
+                )
+                await session.delete(row)
+                return True
+
+    async def search_chat_messages(
+        self, project_id: str, query: str, *, owner_id: Caller, limit: int = 20
+    ) -> list[dict[str, Any]] | None:
+        """Case-insensitive substring search over a project's chat messages,
+        newest first. ``None`` when the caller does not own the project."""
+        async with SessionLocal() as session:
+            if not await self._project_owned(session, project_id, owner_id):
+                return None
+            if not query or not query.strip():
+                return []
             rows = (
                 await session.execute(
                     select(ChatMessage)
-                    .where(ChatMessage.project_id == project_id)
-                    .order_by(ChatMessage.seq)
+                    .where(
+                        ChatMessage.project_id == project_id,
+                        ChatMessage.content.ilike(f"%{query.strip()}%"),
+                    )
+                    .order_by(ChatMessage.seq.desc())
+                    .limit(limit)
                 )
             ).scalars().all()
-            sessions: dict[str, dict[str, Any]] = {}
-            for m in rows:
-                entry = sessions.setdefault(
-                    m.session_id,
-                    {"session_id": m.session_id, "preview": "", "message_count": 0, "last_at": None},
+            return [
+                {
+                    "session_id": m.session_id,
+                    "role": m.role,
+                    "snippet": m.content[:160],
+                    "created_at": _iso(m.created_at),
+                }
+                for m in rows
+            ]
+
+    async def delete_last_exchange(
+        self, project_id: str, session_id: str, *, owner_id: Caller
+    ) -> bool:
+        """Edit-and-resend support: drop the last user message and everything
+        after it (its assistant reply). Full branching is out of scope — the
+        old exchange is gone once edited."""
+        async with SessionLocal() as session:
+            async with session.begin():
+                if not await self._project_owned(session, project_id, owner_id):
+                    return False
+                last_user = (
+                    await session.execute(
+                        select(ChatMessage)
+                        .where(
+                            ChatMessage.project_id == project_id,
+                            ChatMessage.session_id == session_id,
+                            ChatMessage.role == "user",
+                        )
+                        .order_by(ChatMessage.seq.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if last_user is None:
+                    return False
+                await session.execute(
+                    delete(ChatMessage).where(
+                        ChatMessage.project_id == project_id,
+                        ChatMessage.session_id == session_id,
+                        ChatMessage.seq >= last_user.seq,
+                    )
                 )
-                entry["message_count"] += 1
-                entry["last_at"] = _iso(m.created_at)
-                if not entry["preview"] and m.role == "user":
-                    entry["preview"] = m.content[:80]
-            ordered = sorted(sessions.values(), key=lambda s: s["last_at"] or "", reverse=True)
-            return ordered
+                return True
 
     async def delete_last_assistant_message(
         self, project_id: str, session_id: str, *, owner_id: Caller

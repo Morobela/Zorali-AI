@@ -59,8 +59,40 @@ async def project_chats(project_id: str, session_id: str | None = None, _user=us
 
 @router.get("/{project_id}/sessions")
 async def project_sessions(project_id: str, _user=user_or_above):
-    """Conversation list for the project (session id + preview + last activity)."""
+    """Conversation list for the project (session id + title + preview + last activity)."""
     rows = await repo.list_chat_sessions(project_id, owner_id=_user["sub"])
+    if rows is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return rows
+
+
+class SessionUpdate(BaseModel):
+    title: str
+
+
+@router.patch("/{project_id}/sessions/{session_id}")
+async def rename_session(project_id: str, session_id: str, payload: SessionUpdate, _user=user_or_above):
+    """Rename a conversation. 404 for non-owners and unknown sessions."""
+    ok = await repo.rename_chat_session(project_id, session_id, payload.title, owner_id=_user["sub"])
+    if not ok:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "title": payload.title.strip()[:255]}
+
+
+@router.delete("/{project_id}/sessions/{session_id}")
+async def delete_session(project_id: str, session_id: str, _user=user_or_above):
+    """Delete a conversation (messages + summary + session row). 404 for
+    non-owners and unknown sessions."""
+    ok = await repo.delete_chat_session(project_id, session_id, owner_id=_user["sub"])
+    if not ok:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"deleted": True}
+
+
+@router.get("/{project_id}/search")
+async def search_project_chats(project_id: str, q: str = "", _user=user_or_above):
+    """Owner-scoped substring search over the project's chat messages."""
+    rows = await repo.search_chat_messages(project_id, q, owner_id=_user["sub"])
     if rows is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return rows

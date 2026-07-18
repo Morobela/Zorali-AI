@@ -42,6 +42,13 @@ Postgres (with pgvector for embeddings).
 - **Vision input**: attach images in the composer; they ride the WebSocket to
   vision models (llava, qwen-vl, llama3.2-vision via Ollama `images`; OpenAI
   content-parts on the cloud fallback)
+- **Conversation UX parity**: LLM-generated conversation titles
+  (`AUTO_TITLES_ENABLED`), rename/delete from the sidebar, debounced
+  server-side chat search, edit-&-resend on the last message (replaces the
+  exchange — full branching is out of scope), GFM markdown rendering with
+  syntax highlighting and KaTeX math (raw HTML never rendered), and a
+  collapsible Thinking block for `<think>` reasoning models (deepseek-r1,
+  qwen3) that never reaches TTS or stored history
 - **Automatic memory with review** (`AUTO_MEMORY_ENABLED`, default on): after
   each chat turn, durable facts in your message ("I work at Acme…") become
   pending candidates — pattern extractor first, one LLM fallback call when the
@@ -144,6 +151,7 @@ Key `.env` settings (see `.env.example` for the full list):
 - `RAG_TOP_K` — retrieved chunks per turn (always-on retrieval and the `document_search` tool; default 3)
 - `CONTEXT_MAX_TOKENS`, `CONTEXT_KEEP_MESSAGES` — context-window budget (chars/4 estimate) and the verbatim tail once summarization kicks in (defaults 6000 / 8)
 - `AUTO_MEMORY_ENABLED` — automatic memory-candidate extraction after chat turns (default true)
+- `AUTO_TITLES_ENABLED` — one-shot LLM conversation titles after the first reply (default true)
 - `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY`, `DEEP_RESEARCH_MAX_PAGES` — deep research
 - `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off by default)
 

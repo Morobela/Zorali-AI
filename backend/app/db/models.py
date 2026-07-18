@@ -188,6 +188,32 @@ class MemoryTriple(Base):
     )
 
 
+class ChatSession(Base):
+    """One conversation (session) inside a project.
+
+    Created automatically with the first persisted message of a session.
+    ``title`` starts empty and is filled by a one-shot LLM call after the
+    first assistant reply (or by the user renaming the conversation); the
+    sidebar falls back to the first user message preview when empty.
+    """
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+    __table_args__ = (UniqueConstraint("project_id", "session_id", name="uq_chat_session"),)
+
+
 class SessionSummary(Base):
     """Rolling conversation summary for one chat session.
 

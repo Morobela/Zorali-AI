@@ -27,6 +27,9 @@ os.environ.setdefault("RATE_LIMIT_REFILL", "100000")
 # turn; keep it off suite-wide so unrelated WS tests never touch a provider.
 # test_auto_memory.py re-enables it per-test with monkeypatched fakes.
 os.environ.setdefault("AUTO_MEMORY_ENABLED", "false")
+# Same reasoning for one-shot conversation titles (LLM call after the first
+# assistant reply); test_conversation_ux.py re-enables it with fakes.
+os.environ.setdefault("AUTO_TITLES_ENABLED", "false")
 
 from sqlalchemy import delete, text
 

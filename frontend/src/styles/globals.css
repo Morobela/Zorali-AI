@@ -361,6 +361,58 @@ textarea { resize: vertical; }
   cursor: default;
 }
 
+/* Reasoning models: collapsible chain-of-thought block */
+.thinking-block {
+  margin-bottom: 8px;
+  border: 1px solid #d4dce6;
+  border-radius: 8px;
+  background: #f4f7fa;
+  font-size: 12px;
+}
+.thinking-block summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  color: var(--zorali-muted);
+  font-weight: 600;
+  user-select: none;
+}
+.thinking-block .thinking-text {
+  padding: 0 10px 8px;
+  white-space: pre-wrap;
+  color: var(--zorali-muted);
+  line-height: 1.45;
+}
+
+/* Sidebar conversation rows: title + hover actions */
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.recent-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-actions {
+  display: none;
+  gap: 2px;
+}
+.recent-item:hover .recent-actions,
+.recent-item.active .recent-actions {
+  display: inline-flex;
+}
+.recent-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.7;
+  padding: 0 2px;
+}
+.recent-actions button:hover { opacity: 1; }
+
 /* Tool steps — agent tool calls shown as chips above the streaming answer */
 .tool-steps {
   display: flex;

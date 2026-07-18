@@ -11,6 +11,8 @@ from app.db.repositories import repo
 from app.agents.chat_tools import run_chat_tool_loop
 from app.agents.nodes import _build_tools_system_prompt
 from app.agents.orchestrator import route_agent
+from app.agents.reasoning import strip_think
+from app.agents.session_titles import session_titler
 from app.learning.trace_store import trace_store, Trace
 from app.memory.auto_extract import auto_memory
 from app.memory.compression import rolling_summarizer
@@ -173,6 +175,11 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
                     # do not store the (already stored) user message again.
                     await repo.delete_last_assistant_message(project_id, session_id, owner_id=owner)
                 else:
+                    if data.get("edit_last"):
+                        # Edit & resend: the previous last exchange (user
+                        # message + its reply) is replaced, not branched —
+                        # full branching is out of scope.
+                        await repo.delete_last_exchange(project_id, session_id, owner_id=owner)
                     await repo.add_chat_message(project_id, session_id, "user", message, owner_id=owner)
                 memory = await repo.list_chat_messages(project_id, session_id, owner_id=owner) or []
             else:
@@ -330,8 +337,12 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
                 web_citations = loop_stats.get("web_citations", []) or web_citations
             else:
                 citations = [{k: c[k] for k in ("file_id", "filename", "chunk_id", "score")} for c in retrieved]
+            # Reasoning models emit <think>…</think> before the answer; the UI
+            # shows it as a collapsible block, but the stored message (and so
+            # history, prompts and TTS replays) carries only the answer.
+            stored_answer = strip_think(full)
             if persistable and (full or not stopped):
-                await repo.add_chat_message(project_id, session_id, "assistant", full, citations=citations, owner_id=owner)
+                await repo.add_chat_message(project_id, session_id, "assistant", stored_answer, citations=citations, owner_id=owner)
             await websocket.send_json({
                 "type": "done",
                 "citations": citations,
@@ -341,6 +352,14 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
                 "fallback_used": provider_router.fallback_used,
                 "stopped": stopped,
             })
+
+            # First assistant reply in a session → one-shot title generation
+            # for the sidebar (post-done, so answer latency is unaffected).
+            if persistable and len(memory) == 1 and stored_answer:
+                await session_titler.title_first_exchange(
+                    project_id, session_id, message, stored_answer,
+                    owner_id=owner, model=selected_model, local_first=local_first,
+                )
 
             # Automatic memory: extract durable-fact candidates from the
             # user's message into the pending review queue. Runs after the

@@ -1,4 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeHighlight from 'rehype-highlight'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
+import 'highlight.js/styles/github-dark.min.css'
 import logo from './assets/zorali-logo.png'
 import { createZoraliSocket } from './api/zoraliSocket.js'
 import { apiGet, apiPost, apiPut, apiPatch, apiUpload, apiDelete } from './api/httpClient.js'
@@ -13,81 +20,16 @@ const SUGGESTIONS = [
   ['🎙️', 'Voice mode', 'Start voice assistant mode'],
 ]
 
-// ─── Inline markdown renderer ──────────────────────────────────────────────────
-function renderMarkdown(text) {
-  const lines = text.split('\n')
-  const elements = []
-  let i = 0
-
-  while (i < lines.length) {
-    const line = lines[i]
-
-    // Fenced code block
-    const codeMatch = line.match(/^```(\w*)$/)
-    if (codeMatch) {
-      const lang = codeMatch[1] || 'text'
-      const codeLines = []
-      i++
-      while (i < lines.length && !lines[i].startsWith('```')) {
-        codeLines.push(lines[i])
-        i++
-      }
-      elements.push(<CodeBlock key={i} lang={lang} code={codeLines.join('\n')} />)
-      i++
-      continue
-    }
-
-    // Bullet list
-    if (line.startsWith('- ') || line.startsWith('* ')) {
-      const items = []
-      while (i < lines.length && (lines[i].startsWith('- ') || lines[i].startsWith('* '))) {
-        items.push(lines[i].slice(2))
-        i++
-      }
-      elements.push(
-        <ul key={i}>
-          {items.map((it, j) => <li key={j}>{inlineFormat(it)}</li>)}
-        </ul>
-      )
-      continue
-    }
-
-    // Blank line → paragraph break
-    if (line.trim() === '') {
-      i++
-      continue
-    }
-
-    // Regular paragraph line
-    elements.push(<p key={i}>{inlineFormat(line)}</p>)
-    i++
-  }
-
-  return elements
+// ─── Markdown renderer (react-markdown; raw HTML is never rendered) ───────────
+function extractText(node) {
+  if (node == null) return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractText).join('')
+  if (node.props?.children != null) return extractText(node.props.children)
+  return ''
 }
 
-function inlineFormat(text) {
-  // Bold **...** or __...__
-  // Inline code `...`
-  const parts = []
-  const regex = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__)/g
-  let last = 0
-  let m
-  while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index))
-    const token = m[0]
-    if (token.startsWith('`')) {
-      parts.push(<code key={m.index}>{token.slice(1, -1)}</code>)
-    } else {
-      parts.push(<strong key={m.index}>{token.slice(2, -2)}</strong>)
-    }
-    last = m.index + token.length
-  }
-  if (last < text.length) parts.push(text.slice(last))
-  return parts
-}
-
-function CodeBlock({ lang, code }) {
+function CodeBlock({ lang, code, children }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
     navigator.clipboard.writeText(code).then(() => {
@@ -103,9 +45,52 @@ function CodeBlock({ lang, code }) {
           {copied ? '✓ Copied' : '⎘ Copy'}
         </button>
       </div>
-      <pre>{code}</pre>
+      <pre>{children ?? code}</pre>
     </div>
   )
+}
+
+// Fenced blocks arrive as <pre><code class="language-x">…</code></pre>;
+// route them through CodeBlock so the copy button survives, keeping the
+// highlighted children and extracting raw text for the clipboard.
+function MarkdownPre({ children }) {
+  const child = Array.isArray(children) ? children[0] : children
+  const className = child?.props?.className || ''
+  const lang = (className.match(/language-([\w-]+)/) || [])[1] || 'text'
+  return <CodeBlock lang={lang} code={extractText(child)}>{child}</CodeBlock>
+}
+
+function MarkdownLink({ href, children }) {
+  return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+}
+
+const MD_COMPONENTS = { pre: MarkdownPre, a: MarkdownLink }
+const REMARK_PLUGINS = [remarkGfm, remarkMath]
+const REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
+
+function Markdown({ text }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
+      components={MD_COMPONENTS}
+    >
+      {text}
+    </ReactMarkdown>
+  )
+}
+
+// ─── Reasoning models: <think>…</think> → collapsible block ──────────────────
+export function splitThinking(text) {
+  if (!/<think>/i.test(text || '')) return { thinking: '', answer: text || '' }
+  const closed = [...text.matchAll(/<think>([\s\S]*?)<\/think>/gi)].map(m => m[1].trim())
+  let answer = text.replace(/<think>[\s\S]*?<\/think>/gi, '')
+  const open = answer.match(/<think>[\s\S]*$/i)
+  if (open) {
+    closed.push(open[0].replace(/^<think>/i, '').trim())
+    answer = answer.slice(0, open.index)
+  }
+  return { thinking: closed.filter(Boolean).join('\n'), answer: answer.trim() }
 }
 
 // ─── Tool steps (agent tool calls rendered as inline chips) ────────────────────
@@ -139,16 +124,17 @@ function ToolSteps({ steps }) {
 }
 
 // ─── Message component ─────────────────────────────────────────────────────────
-function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
+function Message({ message, canRegenerate, onRegenerate, onSpeak, canEdit, onEdit }) {
   const isUser = message.role === 'user'
   const content = message.content || ''
   const citations = message.citations || []
   const webCitations = message.web_citations || []
   const images = message.images || []
   const [copied, setCopied] = useState(false)
+  const { thinking, answer } = isUser ? { thinking: '', answer: content } : splitThinking(content)
 
   const copyMessage = () => {
-    navigator.clipboard.writeText(content).then(() => {
+    navigator.clipboard.writeText(answer).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -165,10 +151,16 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
           </div>
         )}
         {!isUser && <ToolSteps steps={message.steps} />}
+        {!isUser && thinking && (
+          <details className="thinking-block" open={message.streaming && !answer}>
+            <summary>🧠 Thinking{message.streaming && !answer ? '…' : ''}</summary>
+            <div className="thinking-text">{thinking}</div>
+          </details>
+        )}
         {isUser
           ? <div className="bubble-text"><p>{content}{message.streaming && <span className="stream-cursor" />}</p></div>
           : <div className="bubble-text">
-              {renderMarkdown(content)}
+              <Markdown text={answer} />
               {message.streaming && <span className="stream-cursor" />}
             </div>
         }
@@ -191,6 +183,13 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak }) {
           </div>
         )}
       </div>
+      {isUser && canEdit && (
+        <div className="msg-actions">
+          <button className="msg-action-btn" onClick={() => onEdit(content)} title="Edit and resend (replaces this exchange)">
+            ✎ Edit
+          </button>
+        </div>
+      )}
       {!isUser && !message.streaming && content && (
         <div className="msg-actions">
           <button className="msg-action-btn" onClick={copyMessage} title="Copy message">
@@ -303,8 +302,12 @@ export default function Zorali() {
   // Conversation (session) management — ChatGPT-style history in the sidebar
   const [sessionKey, setSessionKey] = useState(() => crypto.randomUUID())
   const [sessions, setSessions] = useState([])
-  // Client-side filter over the loaded session previews (server-side search is a later phase).
+  // Sidebar chat search: instant client-side filter over previews, replaced
+  // by debounced server-side results (ILIKE over message content) when ready.
   const [sessionSearch, setSessionSearch] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  // Edit & resend: the next send replaces the last user/assistant exchange.
+  const [editingLast, setEditingLast] = useState(false)
   const bottomRef = useRef(null)
   const isStreaming = messages[messages.length - 1]?.streaming === true
 
@@ -390,6 +393,43 @@ export default function Zorali() {
 
   useEffect(() => { loadSessions() }, [loadSessions])
 
+  // Debounced server-side chat search over message content.
+  useEffect(() => {
+    const q = sessionSearch.trim()
+    if (!q || !activeProjectId || activeProjectId === 'default') {
+      setSearchResults(null)
+      return
+    }
+    const timer = setTimeout(() => {
+      apiGet(`/api/project/${activeProjectId}/search?q=${encodeURIComponent(q)}`)
+        .then(rows => {
+          const bySession = new Map()
+          for (const r of rows) if (!bySession.has(r.session_id)) bySession.set(r.session_id, r)
+          setSearchResults([...bySession.values()])
+        })
+        .catch(() => setSearchResults(null))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [sessionSearch, activeProjectId])
+
+  async function renameSession(s) {
+    const next = window.prompt('Rename conversation', s.title || s.preview || '')
+    if (next == null || !next.trim()) return
+    try {
+      await apiPatch(`/api/project/${activeProjectId}/sessions/${encodeURIComponent(s.session_id)}`, { title: next.trim() })
+      loadSessions()
+    } catch (e) { showToast(`Rename failed: ${e.message}`, 'error') }
+  }
+
+  async function deleteSession(s) {
+    if (!window.confirm('Delete this conversation? Its messages are removed for good.')) return
+    try {
+      await apiDelete(`/api/project/${activeProjectId}/sessions/${encodeURIComponent(s.session_id)}`)
+      if (s.session_id === sessionKey) newChat()
+      loadSessions()
+    } catch (e) { showToast(`Delete failed: ${e.message}`, 'error') }
+  }
+
   async function openSession(sid) {
     if (sid === sessionKey) return
     try {
@@ -414,6 +454,8 @@ export default function Zorali() {
   // ── Voice mode (Web Speech API) ───────────────────────────────────────────
   function speak(text) {
     if (!('speechSynthesis' in window)) return
+    // Never read the model's <think> chain of thought aloud.
+    text = splitThinking(text).answer
     // Strip code fences and markdown decorations before speaking.
     const spoken = text
       .replace(/```[\s\S]*?```/g, ' Code block omitted. ')
@@ -576,14 +618,24 @@ export default function Zorali() {
   function send(customText, { regenerate = false } = {}) {
     const text = (customText || input).trim()
     if (!text) return
+    const editing = editingLast && !regenerate
     setInput('')
+    setEditingLast(false)
     window.speechSynthesis?.cancel()
     const images = regenerate ? [] : attachedImages
-    setMessages(prev => [
-      ...prev,
-      ...(regenerate ? [] : [{ role: 'user', content: text, images: images.map(i => i.data) }]),
-      { role: 'assistant', content: '', streaming: true },
-    ])
+    setMessages(prev => {
+      let base = prev
+      if (editing) {
+        // Replace the last exchange locally; the backend drops its copy.
+        const lastUserIdx = prev.map(m => m.role).lastIndexOf('user')
+        if (lastUserIdx >= 0) base = prev.slice(0, lastUserIdx)
+      }
+      return [
+        ...base,
+        ...(regenerate ? [] : [{ role: 'user', content: text, images: images.map(i => i.data) }]),
+        { role: 'assistant', content: '', streaming: true },
+      ]
+    })
     socketRef.current?.send({
       mode,
       message: text,
@@ -592,6 +644,7 @@ export default function Zorali() {
       local_first: localFirst,
       deep_research: deepResearch,
       tools_enabled: toolsEnabled,
+      edit_last: editing,
       attachments: [
         ...attachedFiles,
         ...images.map(i => ({ type: 'image', name: i.name, data: i.data })),
@@ -809,9 +862,18 @@ export default function Zorali() {
     }
   }
 
-  const visibleSessions = sessionSearch.trim()
-    ? sessions.filter(s => (s.preview || '').toLowerCase().includes(sessionSearch.trim().toLowerCase()))
-    : sessions
+  // Server-side results (message-content search) win once they arrive;
+  // until then the client-side filter over titles/previews gives instant feedback.
+  const shownSessions = searchResults != null
+    ? searchResults.map(r => ({
+        ...(sessions.find(s => s.session_id === r.session_id) || { session_id: r.session_id }),
+        snippet: r.snippet,
+      }))
+    : sessionSearch.trim()
+      ? sessions.filter(s =>
+          ((s.title || '') + ' ' + (s.preview || '')).toLowerCase().includes(sessionSearch.trim().toLowerCase())
+        )
+      : sessions
 
   // ─── Render ──────────────────────────────────────────────────────────────
   return (
@@ -862,17 +924,21 @@ export default function Zorali() {
           {sessions.length === 0 && (
             <div className="recent-item" style={{ opacity: 0.55, cursor: 'default' }}>No conversations yet</div>
           )}
-          {sessions.length > 0 && visibleSessions.length === 0 && (
+          {sessions.length > 0 && shownSessions.length === 0 && (
             <div className="recent-item" style={{ opacity: 0.55, cursor: 'default' }}>No matching chats</div>
           )}
-          {visibleSessions.slice(0, 12).map(s => (
+          {shownSessions.slice(0, 12).map(s => (
             <div
               key={s.session_id}
               className={`recent-item${s.session_id === sessionKey ? ' active' : ''}`}
-              title={s.preview}
+              title={s.snippet || s.preview}
               onClick={() => openSession(s.session_id)}
             >
-              {s.preview || 'New conversation'}
+              <span className="recent-label">{s.title || s.preview || s.snippet || 'New conversation'}</span>
+              <span className="recent-actions" onClick={e => e.stopPropagation()}>
+                <button title="Rename" onClick={() => renameSession(s)}>✎</button>
+                <button title="Delete" onClick={() => deleteSession(s)}>🗑</button>
+              </span>
             </div>
           ))}
         </section>
@@ -986,6 +1052,8 @@ export default function Zorali() {
               canRegenerate={!isStreaming && i === messages.length - 1 && m.role === 'assistant'}
               onRegenerate={regenerate}
               onSpeak={'speechSynthesis' in window ? speak : null}
+              canEdit={!isStreaming && m.role === 'user' && i === messages.map(x => x.role).lastIndexOf('user')}
+              onEdit={content => { setInput(content); setEditingLast(true) }}
             />
           ))}
           <div ref={bottomRef} />
@@ -1045,6 +1113,15 @@ export default function Zorali() {
                   <button onClick={() => setAttachedImages(prev => prev.filter((_, j) => j !== i))} title="Remove">✕</button>
                 </span>
               ))}
+            </div>
+          )}
+
+          {editingLast && (
+            <div className="file-pills">
+              <span className="file-pill">
+                ✎ Editing last message — sending replaces the previous answer
+                <button onClick={() => { setEditingLast(false); setInput('') }} title="Cancel edit">✕</button>
+              </span>
             </div>
           )}
 
