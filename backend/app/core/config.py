@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     # retrieval on tools-off turns and for the document_search tool.
     rag_top_k: int = Field(default=3, ge=1, le=50)
 
+    # Conversation titles: after the first assistant reply in a session, one
+    # non-streamed LLM call names the conversation for the sidebar.
+    auto_titles_enabled: bool = True
+
     # Automatic memory extraction: after each completed chat turn, durable
     # facts in the user's message become pending memory candidates (pattern
     # extractor + LLM fallback) awaiting Accept/Reject in the Memory panel.

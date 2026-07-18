@@ -10,3 +10,4 @@ build/
 *.sqlite3
 coverage/
 .pytest_cache/
+dump.rdb
