@@ -361,6 +361,37 @@ textarea { resize: vertical; }
   cursor: default;
 }
 
+/* Tool steps — agent tool calls shown as chips above the streaming answer */
+.tool-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eef2f7;
+  border: 1px solid #d4dce6;
+  color: var(--zorali-muted);
+  font-weight: 500;
+  cursor: default;
+}
+.tool-chip.done {
+  background: #e3f5db;
+  border-color: #b8e0a8;
+  color: var(--zorali-green-dark);
+}
+.tool-chip.failed {
+  background: #fdeaea;
+  border-color: #f0b9b9;
+  color: #a33a3a;
+}
+
 /* Message meta */
 .msg-meta {
   font-size: 11px;

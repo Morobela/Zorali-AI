@@ -176,11 +176,12 @@ registry.register(ToolSpec(
 
 
 async def _document_search_tool(inputs: dict[str, Any], caller: Caller) -> dict[str, Any]:
+    from app.core.config import settings
     from app.db.repositories import repo
 
     # Scoped to the calling user: a project they don't own looks empty,
     # exactly like the HTTP routes' 404 behaviour.
-    hits = await repo.search_chunks(inputs["project_id"], inputs["query"], limit=5, owner_id=caller)
+    hits = await repo.search_chunks(inputs["project_id"], inputs["query"], limit=settings.rag_top_k, owner_id=caller)
     return {"hits": hits or []}
 
 

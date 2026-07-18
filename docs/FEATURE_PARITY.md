@@ -35,7 +35,7 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | Image generation | ChatGPT (DALL·E), Grok (Aurora) | ✖ for now | no production-grade local image model integration; would need SD/ComfyUI service |
 | Video generation | Grok Imagine | ✖ | out of scope |
 | Canvas-style collaborative editor | ChatGPT Canvas | 🗺 | artifact editor is the seed for this |
-| Tool use / agents | All (function calling), JARVIS | 🟡 | task mode (`/status`, `/files`, `/search`, `/read`, `/artifact`, `/run`), live `web_search` + `document_search` + sandboxed `code_execution` tools, agent orchestrator, MCP + A2A endpoints; no autonomous multi-step tool execution |
+| Tool use / agents | All (function calling), JARVIS | ✅ | model-driven tool use in normal chat (default ON, `TOOL_CALL:` protocol, ≤5 calls/turn, tool-step chips in the UI): `web_search`, `document_search`, `calculator`, plus admin-gated `code_execution`; task mode (`/status`, `/files`, `/search`, `/read`, `/artifact`, `/run`), agent orchestrator, MCP + A2A endpoints |
 | System/project awareness ("reality scan") | JARVIS | ✅ | project scanner, service health, git scanner |
 | Proactive routines (wake-ups, monitoring, alerts) | JARVIS | 🗺 | task queue + scheduler exist in backend; no user-facing routines yet |
 | Personality / persona | JARVIS wit, Grok companions | ✅ via custom instructions | set per-project (e.g. "address me as Commander, dry wit") |

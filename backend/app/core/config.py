@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     # Checkpoint persistence (TensorFlow SavedModel-inspired)
     checkpoint_enabled: bool = True
 
+    # How many retrieved chunks reach the prompt — both for the always-on
+    # retrieval on tools-off turns and for the document_search tool.
+    rag_top_k: int = Field(default=3, ge=1, le=50)
     # Hybrid retrieval (2026 production-RAG: hybrid fusion + reranking + contextual)
     rag_rerank_enabled: bool = True
     rag_candidate_pool: int = Field(default=20, ge=1, le=1000)
