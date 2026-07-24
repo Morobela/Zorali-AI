@@ -1,6 +1,9 @@
 # API
 
 - GET /api/health
+- GET /api/notifications (authenticated, owner-scoped; `?unread_only=true`)
+- GET /api/notifications/unread-count (authenticated, owner-scoped)
+- POST /api/notifications/{id}/read · POST /api/notifications/read-all (authenticated, owner-scoped)
 - GET /api/project/status?path=/workspace
 - POST /api/ws-ticket (authenticated; returns a single-use WebSocket ticket)
 - WS /ws/chat/{session_id}?ticket=<ticket>

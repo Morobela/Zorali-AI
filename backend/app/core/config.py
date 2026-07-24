@@ -68,6 +68,20 @@ class Settings(BaseSettings):
     # Checkpoint persistence (TensorFlow SavedModel-inspired)
     checkpoint_enabled: bool = True
 
+    # Reality engine (capability map U3): a continuous task probes services,
+    # scans git and tails logs, diffs consecutive snapshots into event rows,
+    # and posts notifications for notable changes (U4).
+    reality_scan_enabled: bool = True
+    reality_scan_interval_seconds: float = Field(default=60.0, ge=5.0)
+    # Comma-separated log files for the log scanner; empty disables it.
+    log_scan_paths: str = ""
+    # How much of each log file's tail is scanned per cycle.
+    log_scan_tail_kb: int = Field(default=64, ge=1, le=1024)
+    # Error-count increase between consecutive scans that counts as a jump.
+    log_error_jump_threshold: int = Field(default=5, ge=1)
+    # A dirty working tree older than this many hours triggers a notification.
+    dirty_age_threshold_hours: float = Field(default=24.0, ge=0.1)
+
     # How many retrieved chunks reach the prompt — both for the always-on
     # retrieval on tools-off turns and for the document_search tool.
     rag_top_k: int = Field(default=3, ge=1, le=50)

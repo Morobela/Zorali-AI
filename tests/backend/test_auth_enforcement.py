@@ -28,6 +28,10 @@ PROTECTED_ROUTES = [
     # A2A task endpoints — agent card stays public, task data must not be
     ("POST", "/a2a/tasks/send"),
     ("GET", "/a2a/tasks"),
+    # Proactive notifications are per-account data.
+    ("GET", "/api/notifications"),
+    ("GET", "/api/notifications/unread-count"),
+    ("POST", "/api/notifications/read-all"),
 ]
 
 

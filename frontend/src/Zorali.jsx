@@ -9,6 +9,7 @@ import 'highlight.js/styles/github-dark.min.css'
 import logo from './assets/zorali-logo.png'
 import { createZoraliSocket } from './api/zoraliSocket.js'
 import { apiGet, apiPost, apiPut, apiPatch, apiUpload, apiDelete } from './api/httpClient.js'
+import TopbarPills from './components/TopbarPills.jsx'
 
 // ─── Suggestion cards ─────────────────────────────────────────────────────────
 const SUGGESTIONS = [
@@ -959,24 +960,7 @@ export default function Zorali() {
               <p>Chat · Code · Research · Project Status · Safe Tools</p>
             </div>
           </div>
-          <div className="pills">
-            <button
-              className={`pill-btn${panel === 'status' ? ' active' : ''}`}
-              onClick={() => togglePanel('status')}
-            >Reality Scan</button>
-            <button
-              className={`pill-btn${panel === 'artifacts' ? ' active' : ''}`}
-              onClick={() => togglePanel('artifacts')}
-            >Artifacts</button>
-            <button
-              className={`pill-btn${panel === 'memory' ? ' active' : ''}`}
-              onClick={() => togglePanel('memory')}
-            >Memory</button>
-            <button
-              className={`pill-btn${panel === 'deepSearch' ? ' active' : ''}`}
-              onClick={() => togglePanel('deepSearch')}
-            >Deep Search</button>
-          </div>
+          <TopbarPills panel={panel} togglePanel={togglePanel} />
         </header>
 
         <div className="connector-bar">
