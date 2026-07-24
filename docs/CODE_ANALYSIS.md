@@ -9,12 +9,12 @@ This review covers the current backend and frontend structure in this repository
 - Backend is organized as a FastAPI service with modular routers (`health`, `auth`, `chat`, `project`, `tools`, `files`, `mcp`, `a2a`) mounted in `app.main`.
 - Realtime chat currently flows through a WebSocket endpoint (`/ws/chat/{session_id}`) that multiplexes `chat`, `status`, and `task` modes.
 - Frontend uses React + Vite with page/component/store separation and a socket client for chat streaming.
-- The repository already includes phase-oriented extension points (agents, memory types, safety modules, workflows), allowing growth without major tree refactors.
+- The repository already includes phase-oriented extension points (agents, memory types, workflows), allowing growth without major tree refactors. (Unwired safety- and memory-stub modules that once padded this list were deleted in the truth pass; see `TODO.md`.)
 
 ## Strengths
 
 1. **Clear separation of concerns**
-   - API routers, cognition/memory/safety/tooling modules are split cleanly and are easy to evolve independently.
+   - API routers, cognition/memory/tooling modules are split cleanly and are easy to evolve independently.
 2. **Practical local-first stack**
    - FastAPI + WebSocket + Ollama pattern is lightweight for local deployment and experimentation.
 3. **Phase-driven scaffolding is consistent**
@@ -33,7 +33,7 @@ This review covers the current backend and frontend structure in this repository
    - Risk: dropped sessions with weak debuggability.
 
 3. **Safety and approval controls may not be uniformly enforced yet**
-   - Repository has safety and tools modules, but enforcement boundaries (where every dangerous action requires approval) should be validated end-to-end.
+   - Enforcement lives in the tool registry (role gates, `approval_required`, audit log); the standalone safety stubs were unwired and have been deleted. Enforcement boundaries (where every dangerous action requires approval) should still be validated end-to-end.
 
 4. **Trust metadata is currently static in chat completion**
    - `trust_score` is hardcoded (`0.82`) instead of being computed from model/tool/runtime signals.
