@@ -30,6 +30,10 @@ os.environ.setdefault("AUTO_MEMORY_ENABLED", "false")
 # Same reasoning for one-shot conversation titles (LLM call after the first
 # assistant reply); test_conversation_ux.py re-enables it with fakes.
 os.environ.setdefault("AUTO_TITLES_ENABLED", "false")
+# The continuous reality scan would probe services and write event/notification
+# rows underneath unrelated tests; test_reality_engine.py drives the engine
+# directly instead.
+os.environ.setdefault("REALITY_SCAN_ENABLED", "false")
 
 from sqlalchemy import delete, text
 

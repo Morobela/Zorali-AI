@@ -241,6 +241,50 @@ class SessionSummary(Base):
     __table_args__ = (UniqueConstraint("project_id", "session_id", name="uq_session_summary"),)
 
 
+class Notification(Base):
+    """A proactive message from Zorali to one account (capability map U4).
+
+    Rows are created by background routines (the reality engine's diff),
+    never by user requests. Owner-scoped like every other entity: reads and
+    mark-read filter on ``owner_id``. ``read_at`` is NULL while unread.
+    """
+
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+
+class RealityEvent(Base):
+    """One observed change between consecutive reality snapshots.
+
+    System-scoped (no owner): events describe infrastructure state — a
+    service transition, a log error jump, aging uncommitted changes — not
+    user data. Notable events additionally fan out as ``notifications``.
+    """
+
+    __tablename__ = "reality_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="info")
+    detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
+
+
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
 

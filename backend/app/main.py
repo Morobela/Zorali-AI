@@ -14,6 +14,7 @@ from app.api.files import router as files_router
 from app.api.mcp import router as mcp_router
 from app.api.ws_ticket import router as ws_ticket_router
 from app.api.artifacts import router as artifacts_router
+from app.api.notifications import router as notifications_router
 from app.api.skills import router as skills_router
 from app.api.inference_stats import router as inference_router
 from app.a2a.endpoint import router as a2a_router
@@ -21,7 +22,8 @@ from app.core.config import settings
 from app.core.rate_limiter import limiter
 from app.core.metrics import metrics_endpoint, metrics_middleware
 from app.inference.batch_processor import batch_processor
-from app.orchestration.task_queue import task_queue
+from app.orchestration.task_queue import ExecutionMode, QueuedTask, task_queue
+from app.reality.state_engine import reality_engine
 from app.skills.loader import discover_and_load
 
 
@@ -30,6 +32,17 @@ async def lifespan(application: FastAPI):
     # Start background services on startup
     await batch_processor.start()
     await task_queue.start()
+    if settings.reality_scan_enabled:
+        # First real producer for the task queue: the continuous reality scan
+        # (capability map U3) — snapshot services/git/logs, diff into events,
+        # notify on notable changes (U4).
+        await task_queue.enqueue(QueuedTask(
+            name="reality-scan",
+            fn=reality_engine.run_scan,
+            mode=ExecutionMode.CONTINUOUS,
+            interval_s=settings.reality_scan_interval_seconds,
+            priority=7,
+        ))
     if settings.skills_autoload:
         loaded = discover_and_load()
         if loaded:
@@ -78,6 +91,7 @@ app.include_router(mcp_router)
 app.include_router(ws_ticket_router)
 app.include_router(artifacts_router)
 app.include_router(a2a_router)
+app.include_router(notifications_router)
 
 # New enhancement routes
 app.include_router(skills_router)
@@ -107,6 +121,8 @@ async def root():
             "skills-system",
             "mcp-tools",
             "a2a-endpoint",
+            "reality-engine",
+            "proactive-notifications",
             "fault-tolerant-orchestration",
             "async-batch-processing",
             "energy-aware-inference",

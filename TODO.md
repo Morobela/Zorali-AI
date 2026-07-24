@@ -23,4 +23,5 @@ against the code in the Phase-6 sweep.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
 - [ ] Retrieval quality metrics in CI (Recall@5, MRR) on the RAG eval corpus.
 - [ ] Iterative deep research (multi-round search → read → re-search).
-- [ ] Proactive routines (scheduled project scans + notifications).
+- [ ] User-configurable proactive routines (the built-in reality-scan routine
+      with notifications shipped as U3/U4; custom scans/schedules are next).

@@ -30,8 +30,11 @@ from app.db.models import (
     File,
     Memory,
     MemoryTriple,
+    Notification,
     Project,
+    RealityEvent,
     SessionSummary,
+    User,
 )
 from app.db.session import SessionLocal
 
@@ -119,6 +122,30 @@ def _triple_dict(row: MemoryTriple) -> dict[str, Any]:
         "subject": row.subject,
         "relation": row.relation,
         "object": row.object,
+    }
+
+
+def _notification_dict(row: Notification) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "title": row.title,
+        "body": row.body,
+        "read": row.read_at is not None,
+        "read_at": _iso(row.read_at),
+        "created_at": _iso(row.created_at),
+    }
+
+
+def _reality_event_dict(row: RealityEvent) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "subject": row.subject,
+        "severity": row.severity,
+        "detail": row.detail,
+        "data": dict(row.data or {}),
+        "created_at": _iso(row.created_at),
     }
 
 
@@ -1015,6 +1042,91 @@ class Repository:
                     return False
                 await session.delete(row)
                 return True
+
+    # ── Notifications (U4) ──────────────────────────────────────────────────
+
+    async def create_notification(
+        self, user_id: str, kind: str, title: str, body: str = ""
+    ) -> dict[str, Any]:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = Notification(id=str(uuid4()), owner_id=user_id, kind=kind, title=title, body=body)
+                session.add(row)
+            return _notification_dict(row)
+
+    async def list_notifications(
+        self, *, owner_id: str, unread_only: bool = False, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        async with SessionLocal() as session:
+            stmt = select(Notification).where(Notification.owner_id == owner_id)
+            if unread_only:
+                stmt = stmt.where(Notification.read_at.is_(None))
+            stmt = stmt.order_by(Notification.created_at.desc()).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_notification_dict(r) for r in rows]
+
+    async def unread_notification_count(self, *, owner_id: str) -> int:
+        async with SessionLocal() as session:
+            stmt = select(func.count()).select_from(Notification).where(
+                Notification.owner_id == owner_id, Notification.read_at.is_(None)
+            )
+            return int((await session.execute(stmt)).scalar_one())
+
+    async def mark_notification_read(self, notification_id: str, *, owner_id: str) -> bool:
+        """Mark one of the caller's notifications read. A notification owned
+        by someone else behaves like a nonexistent one."""
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = (
+                    await session.execute(
+                        select(Notification).where(
+                            Notification.id == notification_id, Notification.owner_id == owner_id
+                        )
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    return False
+                if row.read_at is None:
+                    row.read_at = _utc_now()
+                return True
+
+    async def mark_all_notifications_read(self, *, owner_id: str) -> int:
+        async with SessionLocal() as session:
+            async with session.begin():
+                rows = (
+                    await session.execute(
+                        select(Notification).where(
+                            Notification.owner_id == owner_id, Notification.read_at.is_(None)
+                        )
+                    )
+                ).scalars().all()
+                now = _utc_now()
+                for row in rows:
+                    row.read_at = now
+                return len(rows)
+
+    async def list_admin_user_ids(self) -> list[str]:
+        """Accounts that receive system notifications (admin and owner roles)."""
+        async with SessionLocal() as session:
+            stmt = select(User.id).where(User.role.in_(("admin", "owner")))
+            return list((await session.execute(stmt)).scalars().all())
+
+    # ── Reality events (U3) ─────────────────────────────────────────────────
+
+    async def create_reality_event(
+        self, kind: str, subject: str, *, severity: str = "info", detail: str = "", data: dict | None = None
+    ) -> dict[str, Any]:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = RealityEvent(kind=kind, subject=subject, severity=severity, detail=detail, data=data or {})
+                session.add(row)
+            return _reality_event_dict(row)
+
+    async def list_reality_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        async with SessionLocal() as session:
+            stmt = select(RealityEvent).order_by(RealityEvent.created_at.desc(), RealityEvent.id.desc()).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_reality_event_dict(r) for r in rows]
 
 
 repo = Repository()

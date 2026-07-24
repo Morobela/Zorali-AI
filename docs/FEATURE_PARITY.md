@@ -37,8 +37,8 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | Video generation | Grok Imagine | ✖ | out of scope |
 | Canvas-style collaborative editor | ChatGPT Canvas | 🗺 | artifact editor is the seed for this |
 | Tool use / agents | All (function calling), JARVIS | ✅ | model-driven tool use in normal chat (default ON, `TOOL_CALL:` protocol, ≤5 calls/turn, tool-step chips in the UI): `web_search`, `document_search`, `calculator`, plus admin-gated `code_execution`; task mode (`/status`, `/files`, `/search`, `/read`, `/artifact`, `/run`), agent orchestrator, **MCP tool server** (tools/list + tools/call over the ticket-authenticated `/mcp` socket, same registry + role gates), A2A endpoint |
-| System/project awareness ("reality scan") | JARVIS | 🟡 | only the project scanner is implemented (`reality/project_scanner.py`, behind `/status`); service health, git scanner and log scanner are stubs — U3 in the capability map will implement them |
-| Proactive routines (wake-ups, monitoring, alerts) | JARVIS | 🗺 | task queue + scheduler exist in backend; no user-facing routines yet |
+| System/project awareness ("reality scan") | JARVIS | ✅ | project scanner (`/status`), async service health probes (Ollama/Postgres/Redis/frontend, TCP+HTTP with latency), git scanner (branch, ahead/behind, dirty count, last commit), log tail scanner (error-pattern counts); the state engine snapshots all of it via the checkpoint store and diffs consecutive snapshots into `reality_events` rows, running as the first CONTINUOUS task on the queue (capability map U3) |
+| Proactive routines (wake-ups, monitoring, alerts) | JARVIS | 🟡 | first routine shipped (capability map U4): the continuous reality scan posts owner/admin notifications on service down, log-error jumps and aging uncommitted changes, surfaced by an unread badge + panel with no user request; user-configurable routines still roadmap |
 | Personality / persona | JARVIS wit, Grok companions | ✅ via custom instructions | set per-project (e.g. "address me as Commander, dry wit") |
 | Mobile/PWA install | All apps | ✅ | manifest + service worker |
 | 2M-token context (Grok 4) | Grok | ✖ | bounded by the local model's context window |
@@ -96,5 +96,6 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
    (search → read → re-search) on top of the shipped single-round pipeline.
 2. **Local voice stack** — whisper.cpp + Piper containers for duplex voice
    independent of browser support.
-3. **Proactive routines** — scheduled project scans + notification surface
-   (the JARVIS "sir, the build is failing" moment); backend task queue exists.
+3. **User-configurable routines** — the built-in reality-scan routine and the
+   notification surface shipped (U3/U4); letting users define their own
+   scans/schedules is the next step.
