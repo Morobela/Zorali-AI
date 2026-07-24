@@ -221,7 +221,11 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
             # plan message.
             web_evidence = agent_plan.pop("evidence", []) if isinstance(agent_plan, dict) else []
             web_citations = agent_plan.get("citations", []) if resolved_mode == "deep_research" and isinstance(agent_plan, dict) else []
-            system_messages.append({"role": "system", "content": f"Agent plan: {agent_plan}"})
+            # Plain chat gets the simple_chat stub plan ("Respond directly
+            # to: <message>"), which only duplicates the user message into
+            # the system prompt — inject real plans, skip the stub.
+            if not (isinstance(agent_plan, dict) and agent_plan.get("agent") == "simple_chat"):
+                system_messages.append({"role": "system", "content": f"Agent plan: {agent_plan}"})
             if rag_block:
                 system_messages.append({"role": "system", "content": rag_system_msg})
             if web_evidence:
