@@ -29,8 +29,10 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap
 
 ## Honest remaining deltas vs frontier products
 
-- **Autonomous multi-step tool loops** — the graph agent executes single tool
-  calls with retry; it does not yet plan chains of tool calls.
+- **Planning and durable task state** — the chat tool loop already chains up
+  to 5 model-driven tool calls per turn (`backend/app/agents/chat_tools.py`);
+  what is still missing is upfront planning (decomposing a goal into steps,
+  replanning on failure) and durable goal/task state that survives a restart.
 - **Automatic memory extraction from conversations** — memories are saved
   explicitly; the triple extractor exists but is not yet run on chat turns.
 - **Iterative research refinement** — deep research does one search round

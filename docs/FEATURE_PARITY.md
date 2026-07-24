@@ -37,7 +37,7 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap · ✖ out of scope for a lo
 | Video generation | Grok Imagine | ✖ | out of scope |
 | Canvas-style collaborative editor | ChatGPT Canvas | 🗺 | artifact editor is the seed for this |
 | Tool use / agents | All (function calling), JARVIS | ✅ | model-driven tool use in normal chat (default ON, `TOOL_CALL:` protocol, ≤5 calls/turn, tool-step chips in the UI): `web_search`, `document_search`, `calculator`, plus admin-gated `code_execution`; task mode (`/status`, `/files`, `/search`, `/read`, `/artifact`, `/run`), agent orchestrator, **MCP tool server** (tools/list + tools/call over the ticket-authenticated `/mcp` socket, same registry + role gates), A2A endpoint |
-| System/project awareness ("reality scan") | JARVIS | ✅ | project scanner, service health, git scanner |
+| System/project awareness ("reality scan") | JARVIS | 🟡 | only the project scanner is implemented (`reality/project_scanner.py`, behind `/status`); service health, git scanner and log scanner are stubs — U3 in the capability map will implement them |
 | Proactive routines (wake-ups, monitoring, alerts) | JARVIS | 🗺 | task queue + scheduler exist in backend; no user-facing routines yet |
 | Personality / persona | JARVIS wit, Grok companions | ✅ via custom instructions | set per-project (e.g. "address me as Commander, dry wit") |
 | Mobile/PWA install | All apps | ✅ | manifest + service worker |

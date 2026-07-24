@@ -18,6 +18,7 @@ non-root pinned Dockerfiles) shipped in PRs #21–#22 and were verified
 against the code in the Phase-6 sweep.
 
 ## Product roadmap
+- [ ] Safety gating (command_guard / prompt_integrity / action_classifier): the unwired stubs were deleted in the truth pass; these remain good ideas to reintroduce properly, wired into the tool registry's execution path.
 - [ ] Artifact side-panel live preview/rendering.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
 - [ ] Retrieval quality metrics in CI (Recall@5, MRR) on the RAG eval corpus.
