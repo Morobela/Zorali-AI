@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from app.api.files import router as files_router
 from app.api.mcp import router as mcp_router
 from app.api.ws_ticket import router as ws_ticket_router
 from app.api.artifacts import router as artifacts_router
+from app.api.goals import router as goals_router
 from app.api.notifications import router as notifications_router
 from app.api.skills import router as skills_router
 from app.api.inference_stats import router as inference_router
@@ -21,6 +23,7 @@ from app.a2a.endpoint import router as a2a_router
 from app.core.config import settings
 from app.core.rate_limiter import limiter
 from app.core.metrics import metrics_endpoint, metrics_middleware
+from app.agents.goal_engine import goal_engine
 from app.inference.batch_processor import batch_processor
 from app.orchestration.task_queue import ExecutionMode, QueuedTask, task_queue
 from app.reality.state_engine import reality_engine
@@ -43,6 +46,18 @@ async def lifespan(application: FastAPI):
             interval_s=settings.reality_scan_interval_seconds,
             priority=7,
         ))
+    if settings.goal_engine_enabled and settings.goal_resume_on_boot:
+        # Durable goals (capability map U1): continue work a previous process
+        # left mid-flight. Detached so a long goal cannot delay startup.
+        async def _resume_goals() -> None:
+            try:
+                resumed = await goal_engine.resume_unfinished_goals()
+                if resumed:
+                    print(f"[Zorali] Resumed {len(resumed)} interrupted goal(s)")
+            except Exception as exc:  # never block startup on a bad goal
+                print(f"[Zorali] Goal resume failed: {exc}")
+
+        asyncio.create_task(_resume_goals())
     if settings.skills_autoload:
         loaded = discover_and_load()
         if loaded:
@@ -92,6 +107,7 @@ app.include_router(ws_ticket_router)
 app.include_router(artifacts_router)
 app.include_router(a2a_router)
 app.include_router(notifications_router)
+app.include_router(goals_router)
 
 # New enhancement routes
 app.include_router(skills_router)
@@ -123,6 +139,7 @@ async def root():
             "a2a-endpoint",
             "reality-engine",
             "proactive-notifications",
+            "durable-goals",
             "fault-tolerant-orchestration",
             "async-batch-processing",
             "energy-aware-inference",

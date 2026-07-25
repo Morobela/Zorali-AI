@@ -32,6 +32,8 @@ PROTECTED_ROUTES = [
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/unread-count"),
     ("POST", "/api/notifications/read-all"),
+    # Durable goals carry the owner's objectives and step results.
+    ("GET", "/api/goals"),
 ]
 
 

@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     # Checkpoint persistence (TensorFlow SavedModel-inspired)
     checkpoint_enabled: bool = True
 
+    # Durable goal engine (capability map U1): WS `goal` mode plans an
+    # objective into persisted tasks/steps and executes them, so work in
+    # flight survives a restart.
+    goal_engine_enabled: bool = True
+    # Resume goals left `running` by a previous process, at boot.
+    goal_resume_on_boot: bool = True
+    # Hard ceilings so a pathological plan or replan loop always terminates.
+    goal_max_steps: int = Field(default=24, ge=1, le=200)
+    goal_max_replans: int = Field(default=3, ge=0, le=20)
+
     # Reality engine (capability map U3): a continuous task probes services,
     # scans git and tails logs, diffs consecutive snapshots into event rows,
     # and posts notifications for notable changes (U4).

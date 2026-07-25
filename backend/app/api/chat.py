@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.tickets import redeem_ticket
 from app.db.repositories import repo
 from app.agents.chat_tools import run_chat_tool_loop
+from app.agents.goal_engine import goal_engine
 from app.agents.nodes import _build_tools_system_prompt
 from app.agents.orchestrator import route_agent
 from app.agents.reasoning import strip_think
@@ -140,6 +141,35 @@ async def chat_ws(websocket: WebSocket, session_id: str, ticket: str = Query(def
                     await websocket.send_json(_task_result("complete", result, tools_used, citations))
                 except Exception as exc:
                     await websocket.send_json(_task_result("error", str(exc), tools_used, citations))
+                continue
+
+            if mode == "goal":
+                # Durable goal mode (capability map U1): one planning call
+                # decomposes the objective into persisted tasks/steps, then
+                # each step runs through the same tool loop as chat. Every
+                # transition is committed before the next step starts, so a
+                # restart resumes instead of losing the work.
+                if not settings.goal_engine_enabled:
+                    await websocket.send_json({"type": "error", "content": "Goal mode is disabled"})
+                    continue
+
+                async def _emit_goal_token(text: str) -> None:
+                    await websocket.send_json({"type": "goal_token", "content": text})
+
+                try:
+                    await goal_engine.start_goal(
+                        message,
+                        project_id=project_id,
+                        session_id=session_id,
+                        owner_id=owner,
+                        caller_role=user.get("role", "user"),
+                        emit=websocket.send_json,
+                        emit_token=_emit_goal_token,
+                        model=selected_model,
+                        local_first=local_first,
+                    )
+                except Exception as exc:
+                    await websocket.send_json({"type": "error", "content": f"Goal failed: {exc}"})
                 continue
 
             resolved_mode = "deep_research" if data.get("deep_research") else mode

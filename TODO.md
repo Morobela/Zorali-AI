@@ -8,7 +8,9 @@ the same registry), two-stage hybrid RAG with optional dense embeddings,
 context-window summarization, automatic memory extraction with review,
 conversation titles/rename/delete/search, async ingestion of
 text/PDF/docx/xlsx, deep research, graph memory, vision input, opt-in
-`python -I` code sandbox, React/Vite PWA frontend (react-markdown + KaTeX +
+`python -I` code sandbox, durable multi-step goals with planning, replanning
+and resume-after-restart (WS `goal` mode), reality engine + proactive
+notifications, React/Vite PWA frontend (react-markdown + KaTeX +
 highlight), dev and prod compose stacks, full CI (ruff, backend tests
 against real Postgres+Redis, Vitest, docker builds, pip-audit/npm audit).
 
@@ -18,6 +20,13 @@ non-root pinned Dockerfiles) shipped in PRs #21–#22 and were verified
 against the code in the Phase-6 sweep.
 
 ## Product roadmap
+- [ ] Parallel goal steps (capability map U2): the durable goal engine (U1)
+      already records `depends_on` per step; submit independent steps to the
+      existing `orchestration/task_queue` with a small concurrency cap and join
+      the results back into goal state.
+- [ ] Per-goal cost budgets (capability map U7): wire the still-unused
+      `QueuedTask.max_cost_usd` against `inference/energy_scorer` so a goal
+      pauses at its ceiling instead of running unbounded.
 - [ ] Safety gating (command_guard / prompt_integrity / action_classifier): the unwired stubs were deleted in the truth pass; these remain good ideas to reintroduce properly, wired into the tool registry's execution path.
 - [ ] Artifact side-panel live preview/rendering.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
