@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from string import punctuation
 from typing import Any
@@ -35,6 +35,7 @@ from app.db.models import (
     Notification,
     Project,
     RealityEvent,
+    RepoImport,
     SessionSummary,
     Task,
     TaskStep,
@@ -77,6 +78,22 @@ def _chunk_dict(row: Chunk) -> dict[str, Any]:
         chunk["embedding"] = list(row.embedding)
         chunk["embedding_model"] = row.embedding_model
     return chunk
+
+
+def _safe_display_name(filename: str) -> str:
+    """The name stored for a file: a relative path with no way out of it.
+
+    Uploads arrive as bare filenames, but a repository import (U6) needs the
+    path inside the repo — ``backend/app/agents/goal_engine.py`` is a far more
+    useful citation than a bare ``goal_engine.py``, and a repo has many
+    identically named files. Bytes on disk are always stored under
+    ``<file_id><suffix>``, so this value is metadata only; it is still
+    normalised here so a traversal sequence can never be persisted or
+    rendered.
+    """
+    parts = [p for p in PurePosixPath(filename.replace("\\", "/")).parts if p not in ("", ".", "/")]
+    safe = [p for p in parts if p != ".."]
+    return "/".join(safe) or Path(filename).name or "file"
 
 
 def _file_dict(row: File, chunks: list[Chunk]) -> dict[str, Any]:
@@ -171,6 +188,23 @@ def _goal_dict(row: Goal, tasks: list[Task] | None = None) -> dict[str, Any]:
         "created_at": _iso(row.created_at),
         "updated_at": _iso(row.updated_at),
         "tasks": [_task_dict(t) for t in (tasks if tasks is not None else row.tasks)],
+    }
+
+
+def _import_dict(row: RepoImport) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "project_id": row.project_id,
+        "source": row.source,
+        "ref": row.ref,
+        "status": row.status,
+        "imported_files": row.imported_files,
+        "skipped_files": row.skipped_files,
+        "failed_files": row.failed_files,
+        "files": list(row.files or []),
+        "error": row.error,
+        "created_at": _iso(row.created_at),
+        "updated_at": _iso(row.updated_at),
     }
 
 
@@ -730,7 +764,7 @@ class Repository:
                 row = File(
                     id=file_id,
                     project_id=project_id,
-                    filename=Path(filename).name,
+                    filename=_safe_display_name(filename),
                     path=str(full_path),
                     extracted_text=extracted_text,
                     indexing_status=indexing_status,
@@ -1378,6 +1412,101 @@ class Repository:
                 for row in rows:
                     row.status = "pending"
                     row.started_at = None
+                return len(rows)
+
+    # ── Repository imports (U6) ─────────────────────────────────────────────
+
+    async def create_import(
+        self, *, project_id: str, source: str, ref: str = "", owner_id: str
+    ) -> dict[str, Any]:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = RepoImport(
+                    id=str(uuid4()), owner_id=owner_id, project_id=project_id,
+                    source=source, ref=ref, status="queued",
+                )
+                session.add(row)
+            return _import_dict(row)
+
+    async def update_import(
+        self,
+        import_id: str,
+        *,
+        owner_id: Caller,
+        status: str | None = None,
+        imported_files: int | None = None,
+        skipped_files: int | None = None,
+        failed_files: int | None = None,
+        files: list[dict] | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(RepoImport).where(RepoImport.id == import_id)
+                if owner_filter is not None:
+                    stmt = stmt.where(RepoImport.owner_id == owner_filter)
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return None
+                if status is not None:
+                    row.status = status
+                if imported_files is not None:
+                    row.imported_files = imported_files
+                if skipped_files is not None:
+                    row.skipped_files = skipped_files
+                if failed_files is not None:
+                    row.failed_files = failed_files
+                if files is not None:
+                    row.files = files
+                if error is not None:
+                    row.error = error
+                row.updated_at = _utc_now()
+                return _import_dict(row)
+
+    async def get_import(self, import_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = select(RepoImport).where(RepoImport.id == import_id)
+            if owner_filter is not None:
+                stmt = stmt.where(RepoImport.owner_id == owner_filter)
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            return _import_dict(row) if row else None
+
+    async def list_imports(
+        self, *, owner_id: Caller, project_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = select(RepoImport)
+            if owner_filter is not None:
+                stmt = stmt.where(RepoImport.owner_id == owner_filter)
+            if project_id:
+                stmt = stmt.where(RepoImport.project_id == project_id)
+            stmt = stmt.order_by(RepoImport.created_at.desc()).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_import_dict(r) for r in rows]
+
+    async def fail_interrupted_imports(self) -> int:
+        """Mark imports left mid-flight by a restart as failed.
+
+        An import runs in a background task; if the process dies the row would
+        otherwise claim to be importing forever. System-scoped: this runs at
+        boot, before any request.
+        """
+        async with SessionLocal() as session:
+            async with session.begin():
+                rows = (
+                    await session.execute(
+                        select(RepoImport).where(
+                            RepoImport.status.in_(("queued", "cloning", "importing"))
+                        )
+                    )
+                ).scalars().all()
+                for row in rows:
+                    row.status = "failed"
+                    row.error = "interrupted by a backend restart"
+                    row.updated_at = _utc_now()
                 return len(rows)
 
     # ── Notifications (U4) ──────────────────────────────────────────────────

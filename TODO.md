@@ -7,7 +7,8 @@ model-driven tool use in normal chat (with MCP tools/list + tools/call over
 the same registry), two-stage hybrid RAG with optional dense embeddings,
 context-window summarization, automatic memory extraction with review,
 conversation titles/rename/delete/search, async ingestion of
-text/PDF/docx/xlsx, deep research, graph memory, vision input, opt-in
+text/PDF/docx/xlsx, multi-file upload and GitHub repository import,
+deep research, graph memory, vision input, opt-in
 `python -I` code sandbox, durable multi-step goals with planning, replanning,
 parallel independent steps on the task queue and resume-after-restart (WS
 `goal` mode), reality engine + proactive
@@ -21,6 +22,8 @@ non-root pinned Dockerfiles) shipped in PRs #21–#22 and were verified
 against the code in the Phase-6 sweep.
 
 ## Product roadmap
+- [ ] Event inbox (capability map U5): HMAC-verified GitHub webhook endpoint
+      that turns push/CI-failure events into goals and notifications.
 - [ ] Per-goal cost budgets (capability map U7): wire the still-unused
       `QueuedTask.max_cost_usd` against `inference/energy_scorer` so a goal
       pauses at its ceiling instead of running unbounded.

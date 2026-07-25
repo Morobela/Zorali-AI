@@ -79,6 +79,13 @@ def extract_text(filename: str, content: bytes) -> str:
     for ext in TEXT_EXTS:
         if lower.endswith(ext):
             return content.decode('utf-8', errors='ignore')
+    # Repository imports (U6) carry source types beyond the upload allowlist —
+    # .sql, .ini, .go, extensionless Dockerfile/Makefile. Uploads are still
+    # gated by validate_extension before reaching here, so decoding any
+    # non-binary payload widens nothing that can be uploaded; it just keeps
+    # imported source searchable instead of silently failing to index.
+    if b'\x00' not in content[:4096]:
+        return content.decode('utf-8', errors='ignore')
     raise HTTPException(status_code=400, detail=f'Unsupported file type: {Path(filename).suffix}')
 
 
@@ -119,13 +126,17 @@ def _public_file(record: dict) -> dict:
     }
 
 
-async def _ingest_file_background(file_id: str, safe_name: str, raw: bytes) -> None:
+async def _ingest_file_background(file_id: str, safe_name: str, raw: bytes) -> bool:
     """Full ingestion pipeline, run after the upload response has returned.
 
     Extraction (pypdf on a 500-page manual can take tens of seconds) runs in a
     worker thread so it never blocks the event loop; embedding generation (GPU
     inference via Ollama) follows in the same task. The caller polls
     ``GET /api/files/{id}/status`` for queued → indexing → ready | failed.
+
+    Returns whether the file reached ``ready`` — callers that ingest in bulk
+    (the repository importer) count outcomes from it rather than assuming
+    success.
     """
     try:
         await repo.update_file_indexing_status(file_id, "indexing", owner_id=SYSTEM)
@@ -153,9 +164,11 @@ async def _ingest_file_background(file_id: str, safe_name: str, raw: bytes) -> N
         await repo.update_file_indexing_status(
             file_id, "ready", chunks=embedded_chunks, extracted_text=text, owner_id=SYSTEM
         )
+        return True
     except Exception as exc:
         _log.warning("Background ingestion failed for %s: %s", file_id, exc)
         await repo.update_file_indexing_status(file_id, "failed", owner_id=SYSTEM)
+        return False
 
 
 @router.post('/upload', status_code=202)
@@ -189,6 +202,64 @@ async def upload(background_tasks: BackgroundTasks, project_id: str = Query(...)
     background_tasks.add_task(_ingest_file_background, record["id"], safe_name, raw)
 
     return _public_file(record)
+
+
+@router.post('/upload-batch', status_code=202)
+async def upload_batch(
+    background_tasks: BackgroundTasks,
+    project_id: str = Query(...),
+    files: list[UploadFile] = File(...),
+    _user=user_or_above,
+):
+    """Multi-file upload (capability map U6).
+
+    One request, one result per file. A file that is rejected (wrong type, too
+    large) does not fail the batch — it comes back with ``status: "rejected"``
+    and its reason, so a 20-file drop does not have to be retried wholesale.
+    Accepted files follow the same 202-then-index path as single upload.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail='No files provided')
+    if len(files) > settings.max_batch_upload_files:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Too many files (max {settings.max_batch_upload_files} per batch)',
+        )
+
+    results: list[dict] = []
+    for upload_file in files:
+        original = upload_file.filename or ''
+        safe_name = Path(original).name
+        try:
+            if safe_name != original or not safe_name:
+                raise ValueError('Invalid filename')
+            if safe_name.startswith('.'):
+                raise ValueError('Hidden files are blocked')
+            validate_extension(safe_name)
+            raw = await upload_file.read()
+            if len(raw) > _max_upload_bytes():
+                raise ValueError(f'File too large (max {settings.max_upload_mb} MB)')
+            record = await repo.save_file(
+                project_id=project_id, filename=safe_name, content=raw,
+                extracted_text='', chunks=[], indexing_status='queued',
+                owner_id=_user["sub"],
+            )
+        except LookupError as exc:
+            # The project itself is missing or not the caller's — the whole
+            # batch is meaningless, so fail it rather than per file.
+            raise HTTPException(status_code=404, detail='Project not found') from exc
+        except HTTPException as exc:
+            results.append({'filename': safe_name or original, 'status': 'rejected', 'reason': exc.detail})
+            continue
+        except ValueError as exc:
+            results.append({'filename': safe_name or original, 'status': 'rejected', 'reason': str(exc)})
+            continue
+
+        background_tasks.add_task(_ingest_file_background, record["id"], safe_name, raw)
+        results.append({**_public_file(record), 'status': 'accepted'})
+
+    accepted = [r for r in results if r['status'] == 'accepted']
+    return {'accepted': len(accepted), 'rejected': len(results) - len(accepted), 'files': results}
 
 
 @router.get('/{file_id}/status')

@@ -230,6 +230,31 @@ textarea { resize: vertical; }
 .goal-step-error { color: #c02c39; }
 .goal-error { margin-top: 8px; }
 
+/* ───── Repository import (U6) ───── */
+.repo-import-form { display: flex; flex-direction: column; gap: 8px; }
+.repo-import-form input {
+  border: 1px solid var(--zorali-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--zorali-white);
+  color: var(--zorali-text);
+}
+.repo-import-form button { align-self: flex-start; }
+.repo-import-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--zorali-border);
+  border-radius: 10px;
+  font-size: 12px;
+  background: var(--zorali-surface);
+}
+.repo-import-counts { color: var(--zorali-muted); }
+
 /* ───── Notifications (U4 proactive channel) ───── */
 .notif-bell-wrap { position: relative; }
 .notif-bell { position: relative; }
