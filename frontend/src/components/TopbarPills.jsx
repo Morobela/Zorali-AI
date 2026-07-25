@@ -9,6 +9,7 @@ export default function TopbarPills({ panel, togglePanel }) {
     ['artifacts', 'Artifacts'],
     ['memory', 'Memory'],
     ['deepSearch', 'Deep Search'],
+    ['sources', 'Import'],
   ]
   return (
     <div className="pills">

@@ -16,12 +16,14 @@ from app.api.mcp import router as mcp_router
 from app.api.ws_ticket import router as ws_ticket_router
 from app.api.artifacts import router as artifacts_router
 from app.api.goals import router as goals_router
+from app.api.imports import router as imports_router
 from app.api.notifications import router as notifications_router
 from app.api.skills import router as skills_router
 from app.api.inference_stats import router as inference_router
 from app.a2a.endpoint import router as a2a_router
 from app.core.config import settings
 from app.core.rate_limiter import limiter
+from app.db.repositories import repo
 from app.core.metrics import metrics_endpoint, metrics_middleware
 from app.agents.goal_engine import goal_engine
 from app.inference.batch_processor import batch_processor
@@ -58,6 +60,19 @@ async def lifespan(application: FastAPI):
                 print(f"[Zorali] Goal resume failed: {exc}")
 
         asyncio.create_task(_resume_goals())
+
+    # A repository import runs in a background task; one interrupted by a
+    # restart would otherwise claim to be importing forever (capability map
+    # U6). Reconcile those rows to failed so the status stays truthful.
+    async def _reconcile_imports() -> None:
+        try:
+            stale = await repo.fail_interrupted_imports()
+            if stale:
+                print(f"[Zorali] Marked {stale} interrupted import(s) as failed")
+        except Exception as exc:
+            print(f"[Zorali] Import reconciliation failed: {exc}")
+
+    asyncio.create_task(_reconcile_imports())
     if settings.skills_autoload:
         loaded = discover_and_load()
         if loaded:
@@ -108,6 +123,7 @@ app.include_router(artifacts_router)
 app.include_router(a2a_router)
 app.include_router(notifications_router)
 app.include_router(goals_router)
+app.include_router(imports_router)
 
 # New enhancement routes
 app.include_router(skills_router)
@@ -140,6 +156,8 @@ async def root():
             "reality-engine",
             "proactive-notifications",
             "durable-goals",
+            "bulk-ingestion",
+            "repository-import",
             "fault-tolerant-orchestration",
             "async-batch-processing",
             "energy-aware-inference",

@@ -341,6 +341,45 @@ class TaskStep(Base):
     task: Mapped["Task"] = relationship(back_populates="steps")
 
 
+class RepoImport(Base):
+    """One repository import into a project (capability map U6).
+
+    Records what was imported, how far it got and why files were skipped, so
+    a caller can poll progress and see afterwards exactly what entered the
+    project. Owner-scoped like every other entity. ``files`` holds a capped
+    per-file list (a large repo would otherwise bloat the row); the counts
+    always cover the whole import.
+
+    Statuses: ``queued`` → ``cloning`` → ``importing`` → ``completed`` /
+    ``failed``.
+    """
+
+    __tablename__ = "repo_imports"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # "owner/repo" — never the authenticated clone URL, which would carry a token.
+    source: Mapped[str] = mapped_column(String(512), nullable=False)
+    ref: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="queued", server_default="queued", index=True
+    )
+    imported_files: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    skipped_files: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    failed_files: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    files: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+
 class Notification(Base):
     """A proactive message from Zorali to one account (capability map U4).
 

@@ -105,6 +105,17 @@ class Settings(BaseSettings):
 
     # Upload size ceiling for /api/files/upload, in megabytes.
     max_upload_mb: int = Field(default=25, ge=1, le=500)
+    # How many files one multi-file upload may carry.
+    max_batch_upload_files: int = Field(default=25, ge=1, le=200)
+
+    # Repository import (capability map U6): clone a GitHub repo and stream
+    # its text files through the normal ingestion pipeline.
+    github_import_enabled: bool = True
+    import_max_files: int = Field(default=500, ge=1, le=5000)
+    import_max_file_kb: int = Field(default=512, ge=1, le=10240)
+    import_clone_timeout_seconds: float = Field(default=120.0, ge=5.0)
+    # Per-file records kept on the import row; counts always cover everything.
+    import_max_recorded_files: int = Field(default=500, ge=1, le=5000)
 
     # Conversation titles: after the first assistant reply in a session, one
     # non-streamed LLM call names the conversation for the sidebar.

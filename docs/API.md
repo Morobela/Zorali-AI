@@ -2,6 +2,9 @@
 
 - GET /api/health
 - GET /api/goals (authenticated, owner-scoped; `?project_id=`) · GET /api/goals/{goal_id}
+- POST /api/files/upload-batch?project_id= (authenticated; multi-file, per-file accept/reject)
+- POST /api/project/{id}/import/github (authenticated, owner-scoped; `{repo, ref?, token?}` → 202 + import id)
+- GET /api/project/{id}/imports · GET /api/project/{id}/imports/{import_id} (authenticated, owner-scoped)
 - GET /api/notifications (authenticated, owner-scoped; `?unread_only=true`)
 - GET /api/notifications/unread-count (authenticated, owner-scoped)
 - POST /api/notifications/{id}/read · POST /api/notifications/read-all (authenticated, owner-scoped)

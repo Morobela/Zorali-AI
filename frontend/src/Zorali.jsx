@@ -11,6 +11,7 @@ import { createZoraliSocket } from './api/zoraliSocket.js'
 import { apiGet, apiPost, apiPut, apiPatch, apiUpload, apiDelete } from './api/httpClient.js'
 import TopbarPills from './components/TopbarPills.jsx'
 import GoalChecklist from './components/GoalChecklist.jsx'
+import RepoImport from './components/RepoImport.jsx'
 import { applyGoalToken, applyGoalUpdate, isGoalFinished } from './state/goalMessages.js'
 
 // ─── Suggestion cards ─────────────────────────────────────────────────────────
@@ -715,18 +716,24 @@ export default function Zorali() {
   async function handleFileSelect(e) {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
-    for (const file of files) {
-      const fd = new FormData()
-      fd.append('file', file)
-      try {
-        showToast(`Uploading ${file.name}…`, 'info', 10000)
-        const result = await apiUpload(`/api/files/upload?project_id=${activeProjectId}`, fd)
-        setAttachedFiles(prev => [...prev, { name: file.name, id: result.id, status: result.indexing_status }])
-        const statusLabel = result.indexing_status === 'queued' ? 'queued for indexing' : result.indexing_status === 'ready' ? 'indexed' : result.indexing_status
-        showToast(`✓ ${file.name} uploaded — ${statusLabel}`, 'success')
-      } catch (err) {
-        showToast(`Upload failed: ${err.message}`, 'error')
+    // One request for the whole selection (U6 bulk ingestion); a file the
+    // server rejects comes back with a reason instead of failing the batch.
+    const fd = new FormData()
+    for (const file of files) fd.append('files', file)
+    try {
+      showToast(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`, 'info', 10000)
+      const result = await apiUpload(`/api/files/upload-batch?project_id=${activeProjectId}`, fd)
+      const accepted = (result.files || []).filter(f => f.status === 'accepted')
+      setAttachedFiles(prev => [
+        ...prev,
+        ...accepted.map(f => ({ name: f.filename, id: f.id, status: f.indexing_status })),
+      ])
+      if (accepted.length) showToast(`✓ ${accepted.length} file(s) queued for indexing`, 'success')
+      for (const rejected of (result.files || []).filter(f => f.status === 'rejected')) {
+        showToast(`${rejected.filename}: ${rejected.reason}`, 'error')
       }
+    } catch (err) {
+      showToast(`Upload failed: ${err.message}`, 'error')
     }
     e.target.value = ''
   }
@@ -1146,6 +1153,7 @@ export default function Zorali() {
                 {panel === 'artifacts' && '📦 Artifacts'}
                 {panel === 'memory' && '🧠 Memory'}
                 {panel === 'deepSearch' && '🔎 Deep Search'}
+                {panel === 'sources' && '📥 Import repository'}
               </h3>
               <button className="panel-close" onClick={() => setPanel(null)}>✕</button>
             </div>
@@ -1156,6 +1164,15 @@ export default function Zorali() {
               {/* Status panel */}
               {panel === 'status' && panelData && (
                 <pre className="status-pre">{JSON.stringify(panelData, null, 2)}</pre>
+              )}
+
+              {/* Repository import panel (U6) */}
+              {panel === 'sources' && (
+                <RepoImport
+                  projectId={activeProjectId}
+                  onImported={r => showToast(`✓ Imported ${r.imported_files} files from ${r.source}`, 'success')}
+                  onError={msg => showToast(`Import failed: ${msg}`, 'error')}
+                />
               )}
 
               {/* Deep Search panel */}
