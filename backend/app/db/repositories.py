@@ -20,6 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import selectinload
 
 from app.core.caller import Caller, resolve_owner_filter
 from app.db.models import (
@@ -28,12 +29,15 @@ from app.db.models import (
     ChatSession,
     Chunk,
     File,
+    Goal,
     Memory,
     MemoryTriple,
     Notification,
     Project,
     RealityEvent,
     SessionSummary,
+    Task,
+    TaskStep,
     User,
 )
 from app.db.session import SessionLocal
@@ -122,6 +126,51 @@ def _triple_dict(row: MemoryTriple) -> dict[str, Any]:
         "subject": row.subject,
         "relation": row.relation,
         "object": row.object,
+    }
+
+
+def _step_dict(row: TaskStep) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "task_id": row.task_id,
+        "goal_id": row.goal_id,
+        "idx": row.idx,
+        "instruction": row.instruction,
+        "depends_on": list(row.depends_on or []),
+        "status": row.status,
+        "result": row.result,
+        "error": row.error,
+        "attempts": row.attempts,
+        "started_at": _iso(row.started_at),
+        "completed_at": _iso(row.completed_at),
+    }
+
+
+def _task_dict(row: Task, steps: list[TaskStep] | None = None) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "goal_id": row.goal_id,
+        "idx": row.idx,
+        "title": row.title,
+        "status": row.status,
+        "result": row.result,
+        "error": row.error,
+        "steps": [_step_dict(s) for s in (steps if steps is not None else row.steps)],
+    }
+
+
+def _goal_dict(row: Goal, tasks: list[Task] | None = None) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "owner_id": row.owner_id,
+        "project_id": row.project_id,
+        "session_id": row.session_id,
+        "objective": row.objective,
+        "status": row.status,
+        "error": row.error,
+        "created_at": _iso(row.created_at),
+        "updated_at": _iso(row.updated_at),
+        "tasks": [_task_dict(t) for t in (tasks if tasks is not None else row.tasks)],
     }
 
 
@@ -1042,6 +1091,270 @@ class Repository:
                     return False
                 await session.delete(row)
                 return True
+
+    # ── Goals / tasks / steps (U1) ──────────────────────────────────────────
+
+    async def create_goal(
+        self,
+        objective: str,
+        plan: list[dict[str, Any]],
+        *,
+        project_id: str,
+        session_id: str = "",
+        owner_id: str,
+        status: str = "running",
+    ) -> dict[str, Any]:
+        """Persist a goal and its planned tasks/steps in one transaction.
+
+        ``plan`` is the planner's output: a list of
+        ``{"title": str, "steps": [{"instruction": str, "depends_on": [int]}]}``.
+        Persisting the whole plan up front is what makes the work durable —
+        a restart re-reads it instead of re-planning.
+        """
+        async with SessionLocal() as session:
+            async with session.begin():
+                goal = Goal(
+                    id=str(uuid4()), owner_id=owner_id, project_id=project_id,
+                    session_id=session_id, objective=objective, status=status,
+                )
+                session.add(goal)
+                tasks: list[Task] = []
+                all_steps: dict[str, list[TaskStep]] = {}
+                for t_idx, task_spec in enumerate(plan):
+                    task = Task(
+                        id=str(uuid4()), goal_id=goal.id, owner_id=owner_id,
+                        idx=t_idx, title=str(task_spec.get("title", ""))[:2000],
+                    )
+                    session.add(task)
+                    tasks.append(task)
+                    steps: list[TaskStep] = []
+                    for s_idx, step_spec in enumerate(task_spec.get("steps") or []):
+                        step = TaskStep(
+                            id=str(uuid4()), task_id=task.id, goal_id=goal.id,
+                            owner_id=owner_id, idx=s_idx,
+                            instruction=str(step_spec.get("instruction", ""))[:4000],
+                            depends_on=[int(d) for d in (step_spec.get("depends_on") or [])],
+                        )
+                        session.add(step)
+                        steps.append(step)
+                    all_steps[task.id] = steps
+            return {
+                **_goal_dict(goal, tasks=[]),
+                "tasks": [_task_dict(t, steps=all_steps[t.id]) for t in tasks],
+            }
+
+    async def get_goal(self, goal_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = (
+                select(Goal)
+                .where(Goal.id == goal_id)
+                .options(selectinload(Goal.tasks).selectinload(Task.steps))
+            )
+            if owner_filter is not None:
+                stmt = stmt.where(Goal.owner_id == owner_filter)
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            return _goal_dict(row) if row else None
+
+    async def list_goals(
+        self, *, owner_id: Caller, project_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = select(Goal).options(selectinload(Goal.tasks).selectinload(Task.steps))
+            if owner_filter is not None:
+                stmt = stmt.where(Goal.owner_id == owner_filter)
+            if project_id:
+                stmt = stmt.where(Goal.project_id == project_id)
+            stmt = stmt.order_by(Goal.created_at.desc()).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_goal_dict(r) for r in rows]
+
+    async def list_unfinished_goals(self) -> list[dict[str, Any]]:
+        """Goals interrupted mid-flight, for the boot resume sweep.
+
+        System-scoped on purpose: the resume runs before any request and must
+        see every account's unfinished work.
+        """
+        async with SessionLocal() as session:
+            stmt = (
+                select(Goal)
+                .where(Goal.status.in_(("planning", "running")))
+                .options(selectinload(Goal.tasks).selectinload(Task.steps))
+                .order_by(Goal.created_at)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_goal_dict(r) for r in rows]
+
+    async def next_runnable_step(self, goal_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+        """The next step to execute: the first not-yet-completed step, in
+        (task order, step order), whose ``depends_on`` siblings have all
+        completed. Returns ``None`` when the goal has no runnable step left.
+
+        This is the resume primitive — after a restart it naturally returns
+        the step after the last completed one, so finished work is never
+        repeated.
+        """
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = (
+                select(TaskStep, Task.idx)
+                .join(Task, Task.id == TaskStep.task_id)
+                .where(TaskStep.goal_id == goal_id)
+                .order_by(Task.idx, TaskStep.idx)
+            )
+            if owner_filter is not None:
+                stmt = stmt.where(TaskStep.owner_id == owner_filter)
+            rows = (await session.execute(stmt)).all()
+
+            done_by_task: dict[str, set[int]] = {}
+            for step, _ in rows:
+                if step.status == "completed":
+                    done_by_task.setdefault(step.task_id, set()).add(step.idx)
+
+            for step, _ in rows:
+                # ``failed`` steps stay in place as the durable record of what
+                # went wrong; the replan inserts replacements after them, so
+                # they must never be handed out again.
+                if step.status in ("completed", "skipped", "failed"):
+                    continue
+                deps = [int(d) for d in (step.depends_on or [])]
+                if all(d in done_by_task.get(step.task_id, set()) for d in deps):
+                    return _step_dict(step)
+            return None
+
+    async def start_step(self, step_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(TaskStep).where(TaskStep.id == step_id)
+                if owner_filter is not None:
+                    stmt = stmt.where(TaskStep.owner_id == owner_filter)
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return None
+                row.status = "running"
+                row.attempts = (row.attempts or 0) + 1
+                row.started_at = _utc_now()
+                return _step_dict(row)
+
+    async def finish_step(
+        self, step_id: str, *, status: str, result: str = "", error: str = "", owner_id: Caller
+    ) -> dict[str, Any] | None:
+        """Record a terminal step outcome (``completed`` or ``failed``)."""
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = (
+                    select(TaskStep)
+                    .where(TaskStep.id == step_id)
+                    .options(selectinload(TaskStep.task).selectinload(Task.steps))
+                )
+                if owner_filter is not None:
+                    stmt = stmt.where(TaskStep.owner_id == owner_filter)
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return None
+                row.status = status
+                row.result = result or ""
+                row.error = error or ""
+                row.completed_at = _utc_now()
+
+                # Roll the outcome up into the owning task. A replan may later
+                # reopen a failed task by inserting fresh steps.
+                task = row.task
+                siblings = list(task.steps)
+                if status == "failed":
+                    task.status = "failed"
+                    task.error = error or ""
+                elif any(s.status in ("pending", "running") for s in siblings):
+                    task.status = "running"
+                else:
+                    task.status = "completed"
+                    task.result = "\n\n".join(s.result for s in siblings if s.result)[:20000]
+                return _step_dict(row)
+
+    async def replace_remaining_steps(
+        self, task_id: str, new_steps: list[dict[str, Any]], *, owner_id: Caller
+    ) -> list[dict[str, Any]]:
+        """Replan: drop the task's still-pending steps and insert new ones.
+
+        Completed steps (with their results) and failed steps (as the durable
+        record of what went wrong) are preserved — a replan may rewrite the
+        future, never the past. Incoming ``depends_on`` values are positions
+        within ``new_steps``; they are shifted onto the new steps' actual
+        ``idx`` values so dependencies survive the renumbering.
+        """
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = (
+                    select(Task).where(Task.id == task_id)
+                    .options(selectinload(Task.steps))
+                )
+                if owner_filter is not None:
+                    stmt = stmt.where(Task.owner_id == owner_filter)
+                task = (await session.execute(stmt)).scalar_one_or_none()
+                if task is None:
+                    return []
+                kept = [s for s in task.steps if s.status in ("completed", "failed")]
+                for step in task.steps:
+                    if step.status not in ("completed", "failed"):
+                        await session.delete(step)
+                next_idx = (max((s.idx for s in kept), default=-1)) + 1
+                created: list[TaskStep] = []
+                for offset, spec in enumerate(new_steps):
+                    step = TaskStep(
+                        id=str(uuid4()), task_id=task.id, goal_id=task.goal_id,
+                        owner_id=task.owner_id, idx=next_idx + offset,
+                        instruction=str(spec.get("instruction", ""))[:4000],
+                        depends_on=[next_idx + int(d) for d in (spec.get("depends_on") or [])],
+                    )
+                    session.add(step)
+                    created.append(step)
+                task.status = "running"
+                task.error = ""
+                return [_step_dict(s) for s in created]
+
+    async def set_goal_status(
+        self, goal_id: str, status: str, *, error: str = "", owner_id: Caller
+    ) -> dict[str, Any] | None:
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(Goal).where(Goal.id == goal_id)
+                if owner_filter is not None:
+                    stmt = stmt.where(Goal.owner_id == owner_filter)
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return None
+                row.status = status
+                row.error = error or ""
+                row.updated_at = _utc_now()
+                return {
+                    "id": row.id, "status": row.status, "error": row.error,
+                    "objective": row.objective, "owner_id": row.owner_id,
+                }
+
+    async def reset_stuck_steps(self, goal_id: str, *, owner_id: Caller) -> int:
+        """Return steps left ``running`` by a killed process to ``pending``.
+
+        A step that was mid-flight when the backend died has no result, so it
+        must run again; completed steps are untouched.
+        """
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(TaskStep).where(
+                    TaskStep.goal_id == goal_id, TaskStep.status == "running"
+                )
+                if owner_filter is not None:
+                    stmt = stmt.where(TaskStep.owner_id == owner_filter)
+                rows = (await session.execute(stmt)).scalars().all()
+                for row in rows:
+                    row.status = "pending"
+                    row.started_at = None
+                return len(rows)
 
     # ── Notifications (U4) ──────────────────────────────────────────────────
 

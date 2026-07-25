@@ -241,6 +241,106 @@ class SessionSummary(Base):
     __table_args__ = (UniqueConstraint("project_id", "session_id", name="uq_session_summary"),)
 
 
+class Goal(Base):
+    """A durable multi-step objective (capability map U1).
+
+    The goal, its tasks and their steps all live in Postgres, so work in
+    flight survives a restart: on boot the engine picks up goals still
+    marked ``running`` and continues from the first step that is not yet
+    completed. Owner-scoped like every other entity.
+
+    Statuses: ``planning`` → ``running`` → ``completed`` / ``failed``.
+    """
+
+    __tablename__ = "goals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="planning", server_default="planning", index=True
+    )
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+    tasks: Mapped[list["Task"]] = relationship(
+        back_populates="goal", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="Task.idx",
+    )
+
+
+class Task(Base):
+    """One unit of a goal's plan, ordered by ``idx`` within the goal."""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    goal_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("goals.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    idx: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    result: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+    goal: Mapped["Goal"] = relationship(back_populates="tasks")
+    steps: Mapped[list["TaskStep"]] = relationship(
+        back_populates="task", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="TaskStep.idx",
+    )
+
+
+class TaskStep(Base):
+    """One executable step of a task — the unit the goal engine runs.
+
+    ``depends_on`` holds the ``idx`` values of sibling steps that must
+    complete first; an empty list means the step is independent (U2 uses
+    that to run independent steps in parallel). ``result`` carries the
+    step's answer text and ``error`` the failure reason, so a resumed goal
+    can feed earlier results into later steps without replaying any work.
+    """
+
+    __tablename__ = "task_steps"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    task_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Denormalized so the engine can order and pick steps across a whole goal
+    # without joining through tasks on every poll.
+    goal_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    idx: Mapped[int] = mapped_column(Integer, nullable=False)
+    instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    depends_on: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending", index=True
+    )
+    result: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    task: Mapped["Task"] = relationship(back_populates="steps")
+
+
 class Notification(Base):
     """A proactive message from Zorali to one account (capability map U4).
 

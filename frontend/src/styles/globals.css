@@ -185,6 +185,51 @@ textarea { resize: vertical; }
   font-weight: 600;
 }
 
+/* ───── Goal checklist (U1 durable goals) ───── */
+.goal-card {
+  border: 1px solid var(--zorali-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  background: var(--zorali-surface);
+}
+.goal-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.goal-objective { font-size: 13px; flex: 1; min-width: 0; }
+.goal-count { font-size: 11px; color: var(--zorali-muted); }
+.goal-status {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--zorali-border);
+  color: var(--zorali-text);
+}
+.goal-status.running { background: #e3f5db; color: var(--zorali-green-dark); }
+.goal-status.completed { background: #d6efc7; color: var(--zorali-green-dark); }
+.goal-status.failed { background: #f8d7da; color: #842029; }
+.goal-replanned { font-size: 11px; color: var(--zorali-muted); margin-top: 6px; }
+.goal-task { margin-top: 8px; }
+.goal-task-title { font-size: 11px; font-weight: 600; color: var(--zorali-muted); margin-bottom: 4px; }
+.goal-step { display: flex; gap: 8px; padding: 4px 0; font-size: 12px; }
+.goal-step-icon { width: 14px; flex-shrink: 0; text-align: center; }
+.goal-step.completed .goal-step-icon { color: var(--zorali-green-dark); }
+.goal-step.failed .goal-step-icon { color: #c02c39; }
+.goal-step.running .goal-step-icon { color: var(--zorali-green); }
+.goal-step.pending { color: var(--zorali-muted); }
+.goal-step-body { display: flex; flex-direction: column; min-width: 0; }
+.goal-step-instruction { word-break: break-word; }
+.goal-step-result,
+.goal-step-error {
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.goal-step-result { color: var(--zorali-muted); }
+.goal-step-error { color: #c02c39; }
+.goal-error { margin-top: 8px; }
+
 /* ───── Notifications (U4 proactive channel) ───── */
 .notif-bell-wrap { position: relative; }
 .notif-bell { position: relative; }

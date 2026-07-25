@@ -34,6 +34,9 @@ os.environ.setdefault("AUTO_TITLES_ENABLED", "false")
 # rows underneath unrelated tests; test_reality_engine.py drives the engine
 # directly instead.
 os.environ.setdefault("REALITY_SCAN_ENABLED", "false")
+# Boot resume would pick up goals seeded by other tests (and call a provider);
+# test_goal_engine.py drives resume explicitly instead.
+os.environ.setdefault("GOAL_RESUME_ON_BOOT", "false")
 
 from sqlalchemy import delete, text
 

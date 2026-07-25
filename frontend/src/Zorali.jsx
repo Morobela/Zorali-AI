@@ -10,6 +10,8 @@ import logo from './assets/zorali-logo.png'
 import { createZoraliSocket } from './api/zoraliSocket.js'
 import { apiGet, apiPost, apiPut, apiPatch, apiUpload, apiDelete } from './api/httpClient.js'
 import TopbarPills from './components/TopbarPills.jsx'
+import GoalChecklist from './components/GoalChecklist.jsx'
+import { applyGoalToken, applyGoalUpdate, isGoalFinished } from './state/goalMessages.js'
 
 // ─── Suggestion cards ─────────────────────────────────────────────────────────
 const SUGGESTIONS = [
@@ -152,6 +154,7 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak, canEdit, onEdi
           </div>
         )}
         {!isUser && <ToolSteps steps={message.steps} />}
+        {!isUser && message.goal && <GoalChecklist goal={message.goal} event={message.goalEvent} />}
         {!isUser && thinking && (
           <details className="thinking-block" open={message.streaming && !answer}>
             <summary>🧠 Thinking{message.streaming && !answer ? '…' : ''}</summary>
@@ -587,6 +590,12 @@ export default function Zorali() {
             return copy
           })
         }
+        // Durable goal mode (U1) — reducers live in state/goalMessages.js.
+        if (msg.type === 'goal_update') {
+          setMessages(prev => applyGoalUpdate(prev, msg))
+          if (isGoalFinished(msg.event)) loadSessions()
+        }
+        if (msg.type === 'goal_token') setMessages(prev => applyGoalToken(prev, msg))
         if (msg.type === 'status') {
           setPanelData(msg.data)
           setPanel('status')
@@ -1045,7 +1054,7 @@ export default function Zorali() {
 
         <footer className="composer">
           <div className="composer-toolbar">
-            {['chat', 'task'].map(x => (
+            {['chat', 'task', 'goal'].map(x => (
               <button
                 key={x}
                 className={`toolbar-btn${mode === x ? ' mode-active' : ''}`}

@@ -1,6 +1,7 @@
 # API
 
 - GET /api/health
+- GET /api/goals (authenticated, owner-scoped; `?project_id=`) · GET /api/goals/{goal_id}
 - GET /api/notifications (authenticated, owner-scoped; `?unread_only=true`)
 - GET /api/notifications/unread-count (authenticated, owner-scoped)
 - POST /api/notifications/{id}/read · POST /api/notifications/read-all (authenticated, owner-scoped)
