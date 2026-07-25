@@ -1186,14 +1186,13 @@ class Repository:
             rows = (await session.execute(stmt)).scalars().all()
             return [_goal_dict(r) for r in rows]
 
-    async def next_runnable_step(self, goal_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
-        """The next step to execute: the first not-yet-completed step, in
-        (task order, step order), whose ``depends_on`` siblings have all
-        completed. Returns ``None`` when the goal has no runnable step left.
+    async def _runnable_steps(self, goal_id: str, *, owner_id: Caller) -> list[dict[str, Any]]:
+        """Every step whose dependencies are satisfied, in (task, step) order.
 
-        This is the resume primitive — after a restart it naturally returns
-        the step after the last completed one, so finished work is never
-        repeated.
+        A step is runnable when it is not finished and every sibling listed in
+        its ``depends_on`` has completed. ``failed`` steps stay in place as the
+        durable record of what went wrong — a replan inserts replacements
+        after them — so they are never handed out again.
         """
         owner_filter = resolve_owner_filter(owner_id)
         async with SessionLocal() as session:
@@ -1212,16 +1211,41 @@ class Repository:
                 if step.status == "completed":
                     done_by_task.setdefault(step.task_id, set()).add(step.idx)
 
+            runnable: list[dict[str, Any]] = []
             for step, _ in rows:
-                # ``failed`` steps stay in place as the durable record of what
-                # went wrong; the replan inserts replacements after them, so
-                # they must never be handed out again.
                 if step.status in ("completed", "skipped", "failed"):
                     continue
                 deps = [int(d) for d in (step.depends_on or [])]
                 if all(d in done_by_task.get(step.task_id, set()) for d in deps):
-                    return _step_dict(step)
-            return None
+                    runnable.append(_step_dict(step))
+            return runnable
+
+    async def next_runnable_step(self, goal_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+        """The next single step to execute, or ``None`` when none is runnable.
+
+        This is the resume primitive — after a restart it naturally returns
+        the step after the last completed one, so finished work is never
+        repeated.
+        """
+        runnable = await self._runnable_steps(goal_id, owner_id=owner_id)
+        return runnable[0] if runnable else None
+
+    async def runnable_step_batch(
+        self, goal_id: str, *, owner_id: Caller, limit: int = 1
+    ) -> list[dict[str, Any]]:
+        """Independent steps that may run at the same time (capability map U2).
+
+        Batching is deliberately scoped to one task: dependencies are declared
+        between siblings, and a plan's tasks read as ordered phases ("research"
+        then "write"), so steps of a later task are not started early. Within
+        the first task that has runnable steps, every step with no outstanding
+        dependency is returned, capped at ``limit``.
+        """
+        runnable = await self._runnable_steps(goal_id, owner_id=owner_id)
+        if not runnable:
+            return []
+        first_task = runnable[0]["task_id"]
+        return [s for s in runnable if s["task_id"] == first_task][: max(1, limit)]
 
     async def start_step(self, step_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
         owner_filter = resolve_owner_filter(owner_id)

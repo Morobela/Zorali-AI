@@ -29,11 +29,11 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap
 
 ## Honest remaining deltas vs frontier products
 
-- **Parallel step execution** — planning, replanning and durable goal state
-  shipped (capability map U1: `goals`/`tasks`/`task_steps`, WS `goal` mode,
-  resume-on-boot). Steps still execute strictly serially; the planner already
-  records `depends_on` per step, so submitting independent steps to the task
-  queue is the remaining piece (U2).
+- **Per-task cost budgets** — planning, replanning, durable goal state (U1)
+  and parallel execution of independent steps through the task queue (U2) all
+  shipped. What remains from the agent-loop gaps is spend control:
+  `QueuedTask.max_cost_usd` is still unenforced, so a goal cannot yet pause
+  itself at a ceiling (capability map U7).
 - **Automatic memory extraction from conversations** — memories are saved
   explicitly; the triple extractor exists but is not yet run on chat turns.
 - **Iterative research refinement** — deep research does one search round

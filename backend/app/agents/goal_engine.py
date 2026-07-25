@@ -13,6 +13,8 @@ level); if it declines, the goal fails with the error recorded.
 """
 from __future__ import annotations
 
+import asyncio
+from functools import partial
 from typing import Awaitable, Callable
 
 from app.agents.chat_tools import run_chat_tool_loop
@@ -22,8 +24,28 @@ from app.agents.reasoning import strip_think
 from app.core.config import settings
 from app.db.repositories import repo
 from app.models.llm import stream_llm
+from app.orchestration.task_queue import ExecutionMode, QueuedTask, task_queue
 
 EmitFn = Callable[[dict], Awaitable[None]]
+
+
+class _Claim:
+    """One-shot claim so a step can never be executed twice.
+
+    Both the queued task and the engine's timeout fallback try to run a step;
+    exactly one wins the claim and the other returns immediately.
+    """
+
+    __slots__ = ("taken",)
+
+    def __init__(self) -> None:
+        self.taken = False
+
+    def take(self) -> bool:
+        if self.taken:
+            return False
+        self.taken = True
+        return True
 
 # How much of an earlier step's result is carried into later steps.
 _RESULT_CONTEXT_CHARS = 1200
@@ -94,31 +116,28 @@ class GoalEngine:
         executed = 0
         replans = 0
         while executed < settings.goal_max_steps:
-            step = await repo.next_runnable_step(goal_id, owner_id=owner_id)
-            if step is None:
+            batch = await repo.runnable_step_batch(
+                goal_id, owner_id=owner_id, limit=settings.goal_max_parallel_steps
+            )
+            if not batch:
                 break
 
-            await repo.start_step(step["id"], owner_id=owner_id)
-            await self._emit_goal(emit, goal_id, "step_started", owner_id=owner_id, step=step)
-
-            result, error = await self._run_step(
-                step, objective=objective, project_id=project_id, goal_id=goal_id,
+            # Independent steps of the same task run together through the
+            # orchestration queue (U2); a lone step runs inline, keeping the
+            # common case free of queue overhead and able to stream tokens.
+            outcomes = await self._run_batch(
+                batch, objective=objective, project_id=project_id, goal_id=goal_id,
                 owner_id=owner_id, caller_role=caller_role, emit=emit,
                 emit_token=emit_token, model=model, local_first=local_first,
             )
-            executed += 1
+            executed += len(batch)
 
-            if error is None:
-                await repo.finish_step(
-                    step["id"], status="completed", result=result, owner_id=owner_id
-                )
-                await self._emit_goal(emit, goal_id, "step_completed", owner_id=owner_id, step=step)
+            failures = [(step, error) for step, error in outcomes if error is not None]
+            if not failures:
                 continue
-
-            await repo.finish_step(
-                step["id"], status="failed", error=error, owner_id=owner_id
-            )
-            await self._emit_goal(emit, goal_id, "step_failed", owner_id=owner_id, step=step)
+            # Replan from the first failure; steps that succeeded alongside it
+            # keep their results, and the replan sees them as completed.
+            step, error = failures[0]
 
             if replans >= settings.goal_max_replans:
                 return await self._fail_goal(
@@ -180,6 +199,109 @@ class GoalEngine:
         return resumed
 
     # ── internals ───────────────────────────────────────────────────────────
+
+    async def _run_batch(
+        self,
+        batch: list[dict],
+        *,
+        emit: EmitFn,
+        emit_token: Callable[[str], Awaitable[None]] | None,
+        **step_kwargs,
+    ) -> list[tuple[dict, str | None]]:
+        """Execute one batch of independent steps; returns (step, error) pairs.
+
+        A single step runs inline (streaming its tokens, exactly as before U2).
+        A batch of two or more is submitted to the shared ``task_queue`` — its
+        first on-demand producer — and awaited. Token streaming is suppressed
+        for parallel batches: two steps writing into one bubble would interleave
+        into nonsense, so progress shows through ``goal_update`` frames instead.
+        """
+        if len(batch) == 1:
+            step = batch[0]
+            return [(step, await self._run_one(
+                step, emit=emit, emit_token=emit_token, **step_kwargs
+            ))]
+
+        claims = {step["id"]: _Claim() for step in batch}
+        outcomes: dict[str, str | None] = {}
+
+        async def _work(step: dict) -> None:
+            if not claims[step["id"]].take():
+                return
+            outcomes[step["id"]] = await self._run_one(
+                step, emit=emit, emit_token=None, **step_kwargs
+            )
+
+        if task_queue.is_running:
+            done_events = {step["id"]: asyncio.Event() for step in batch}
+
+            async def _queued(step: dict) -> None:
+                try:
+                    await _work(step)
+                finally:
+                    done_events[step["id"]].set()
+
+            for step in batch:
+                await task_queue.enqueue(QueuedTask(
+                    name=f"goal-step:{step['id'][:8]}",
+                    fn=partial(_queued, step),
+                    mode=ExecutionMode.ON_DEMAND,
+                    priority=4,
+                ))
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*(event.wait() for event in done_events.values())),
+                    timeout=settings.goal_parallel_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                # A stalled queue must never hang a goal: finish the unclaimed
+                # steps here. ``_Claim`` guarantees no step runs twice.
+                await asyncio.gather(*(
+                    _work(step) for step in batch if not claims[step["id"]].taken
+                ))
+        else:
+            # No worker draining the queue (a process that never ran startup,
+            # or one shutting down): run the batch here, same concurrency cap.
+            limiter = asyncio.Semaphore(settings.goal_max_parallel_steps)
+
+            async def _limited(step: dict) -> None:
+                async with limiter:
+                    await _work(step)
+
+            await asyncio.gather(*(_limited(step) for step in batch))
+
+        return [(step, outcomes.get(step["id"], "step did not run")) for step in batch]
+
+    async def _run_one(
+        self,
+        step: dict,
+        *,
+        goal_id: str,
+        owner_id: str,
+        emit: EmitFn,
+        emit_token: Callable[[str], Awaitable[None]] | None,
+        **run_kwargs,
+    ) -> str | None:
+        """Mark a step running, execute it, record the outcome. Returns the
+        error string, or ``None`` on success."""
+        await repo.start_step(step["id"], owner_id=owner_id)
+        await self._emit_goal(emit, goal_id, "step_started", owner_id=owner_id, step=step)
+
+        result, error = await self._run_step(
+            step, goal_id=goal_id, owner_id=owner_id, emit=emit,
+            emit_token=emit_token, **run_kwargs,
+        )
+        if error is None:
+            await repo.finish_step(
+                step["id"], status="completed", result=result, owner_id=owner_id
+            )
+            await self._emit_goal(emit, goal_id, "step_completed", owner_id=owner_id, step=step)
+        else:
+            await repo.finish_step(
+                step["id"], status="failed", error=error, owner_id=owner_id
+            )
+            await self._emit_goal(emit, goal_id, "step_failed", owner_id=owner_id, step=step)
+        return error
 
     async def _run_step(
         self,
