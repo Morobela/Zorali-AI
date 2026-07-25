@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     # Hard ceilings so a pathological plan or replan loop always terminates.
     goal_max_steps: int = Field(default=24, ge=1, le=200)
     goal_max_replans: int = Field(default=3, ge=0, le=20)
+    # How many independent steps of one task may run at once, submitted to the
+    # orchestration task queue (capability map U2). 2–3 is realistic against a
+    # local Ollama; 1 restores strictly serial execution.
+    goal_max_parallel_steps: int = Field(default=2, ge=1, le=8)
+    # Guard so a stalled queue can never hang a goal: past this the engine
+    # finishes the batch itself.
+    goal_parallel_timeout_seconds: float = Field(default=300.0, ge=5.0)
 
     # Reality engine (capability map U3): a continuous task probes services,
     # scans git and tails logs, diffs consecutive snapshots into event rows,

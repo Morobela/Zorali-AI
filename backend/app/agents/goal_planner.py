@@ -35,7 +35,10 @@ Rules:
   carry out in one turn (research something, draft something, summarize
   something). Never reference "the previous step" implicitly — say what is needed.
 - "depends_on" lists the indices (0-based, within the same task) of sibling
-  steps that must finish first. Use [] for steps that are independent.
+  steps that must finish first. Use [] when a step needs nothing from its
+  siblings — independent steps are executed in parallel, so mark them
+  accurately: list a dependency only when the step genuinely needs that
+  step's output, and leave it empty otherwise.
 - No prose, no code fences, no explanation. JSON only."""
 
 _REPLAN_PROMPT = """You are Zorali's planner, fixing a plan that just failed.

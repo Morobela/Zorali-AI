@@ -32,6 +32,17 @@ THREE_STEP_PLAN = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _serial_steps(monkeypatch):
+    """Pin these tests to serial execution.
+
+    They assert exact step ordering and crash-after-N semantics, which only
+    have one meaning when steps run one at a time. Parallel batching (U2) is
+    covered in ``test_goal_parallel_steps.py``.
+    """
+    monkeypatch.setattr(settings, "goal_max_parallel_steps", 1)
+
+
 def _steps_of(goal: dict) -> list[dict]:
     return [s for t in goal["tasks"] for s in t["steps"]]
 

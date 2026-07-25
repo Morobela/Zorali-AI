@@ -56,9 +56,45 @@ class TaskQueue:
         self._running = False
         self._executor = FaultTolerantExecutor()
 
+    @property
+    def is_running(self) -> bool:
+        """Whether the worker loop is live.
+
+        Producers that await their submissions check this first: with no
+        worker draining the queue (a process that never ran startup, or one
+        already shutting down) an enqueued task would never execute, so the
+        producer runs the work itself instead of waiting forever.
+        """
+        return self._running
+
+    def _rebind_queue_if_needed(self) -> None:
+        """Re-create the queue if it belongs to a previous event loop.
+
+        ``asyncio.Queue`` binds itself to the first loop that awaits it and
+        raises ``RuntimeError`` when touched from another one. The queue object
+        is a module-level singleton, so a process that runs more than one loop
+        (``asyncio.run`` twice, a test suite, an embedding script) would start
+        a worker that dies on its first empty ``get()`` — leaving the queue
+        permanently undrained. Pending items are carried across; the
+        ``*_nowait`` calls used here never touch the loop binding.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if getattr(self._queue, "_loop", None) in (None, loop):
+            return
+        pending = []
+        while not self._queue.empty():
+            pending.append(self._queue.get_nowait())
+        self._queue = asyncio.PriorityQueue()
+        for item in pending:
+            self._queue.put_nowait(item)
+
     async def start(self) -> None:
         if self._running:
             return
+        self._rebind_queue_if_needed()
         self._running = True
         asyncio.create_task(self._worker_loop())
 
@@ -85,6 +121,15 @@ class TaskQueue:
                 self._active[task.task_id] = t
             except asyncio.TimeoutError:
                 continue
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # The worker is the queue's only consumer: if an unexpected
+                # error killed this loop the queue would stay full forever
+                # while `is_running` still claimed otherwise. Absorb it, pause
+                # briefly, and keep draining.
+                print(f"[Zorali] task queue worker error: {type(exc).__name__}: {exc}")
+                await asyncio.sleep(0.2)
 
     async def _execute(self, task: QueuedTask) -> None:
         try:
