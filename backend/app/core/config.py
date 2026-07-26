@@ -108,6 +108,19 @@ class Settings(BaseSettings):
     # How many files one multi-file upload may carry.
     max_batch_upload_files: int = Field(default=25, ge=1, le=200)
 
+    # Event inbox (capability map U5). The webhook endpoint is inert until a
+    # secret is set: with no secret there is nothing to verify a delivery
+    # against, so every request is refused rather than trusted.
+    github_webhook_secret: str = ""
+    # Only accept deliveries for this repository ("owner/repo"); empty accepts
+    # any repository that can produce a valid signature.
+    github_repo: str = ""
+    # Optional read-only token, used to fetch a failing job's log. Without it
+    # the CI routine still runs, using only what the delivery carried.
+    github_token: str = ""
+    # Turn a CI failure into a diagnosis goal + notification.
+    github_ci_routine_enabled: bool = True
+
     # Repository import (capability map U6): clone a GitHub repo and stream
     # its text files through the normal ingestion pipeline.
     github_import_enabled: bool = True

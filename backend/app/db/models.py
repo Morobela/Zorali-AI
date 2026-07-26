@@ -341,6 +341,39 @@ class TaskStep(Base):
     task: Mapped["Task"] = relationship(back_populates="steps")
 
 
+class InboundEvent(Base):
+    """One event delivered to Zorali from outside (capability map U5).
+
+    System-scoped, like ``reality_events``: these describe the world, not a
+    user's data. ``delivery_id`` is unique so a webhook redelivery (GitHub
+    retries) can never double-record or re-trigger a routine. ``payload``
+    holds a trimmed summary, never the whole delivery body.
+
+    Statuses: ``received`` → ``handled`` / ``ignored`` / ``failed``.
+    """
+
+    __tablename__ = "inbound_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="github", index=True)
+    # X-GitHub-Delivery — the idempotency key for redelivery.
+    delivery_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    repo: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    ref: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="received", server_default="received", index=True
+    )
+    # The goal this event opened, when a routine converted it into one.
+    goal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
+
+
 class RepoImport(Base):
     """One repository import into a project (capability map U6).
 

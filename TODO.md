@@ -11,8 +11,8 @@ text/PDF/docx/xlsx, multi-file upload and GitHub repository import,
 deep research, graph memory, vision input, opt-in
 `python -I` code sandbox, durable multi-step goals with planning, replanning,
 parallel independent steps on the task queue and resume-after-restart (WS
-`goal` mode), reality engine + proactive
-notifications, React/Vite PWA frontend (react-markdown + KaTeX +
+`goal` mode), reality engine + proactive notifications, HMAC-verified GitHub
+event inbox with CI-failure diagnosis, React/Vite PWA frontend (react-markdown + KaTeX +
 highlight), dev and prod compose stacks, full CI (ruff, backend tests
 against real Postgres+Redis, Vitest, docker builds, pip-audit/npm audit).
 
@@ -22,8 +22,9 @@ non-root pinned Dockerfiles) shipped in PRs #21–#22 and were verified
 against the code in the Phase-6 sweep.
 
 ## Product roadmap
-- [ ] Event inbox (capability map U5): HMAC-verified GitHub webhook endpoint
-      that turns push/CI-failure events into goals and notifications.
+- [ ] More inbound event sources (capability map U5 shipped one: HMAC-verified
+      GitHub webhooks → CI-failure diagnosis goals + notifications). Issues,
+      deploys and review requests are the obvious next ones.
 - [ ] Per-goal cost budgets (capability map U7): wire the still-unused
       `QueuedTask.max_cost_usd` against `inference/energy_scorer` so a goal
       pauses at its ceiling instead of running unbounded.
