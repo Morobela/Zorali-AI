@@ -38,6 +38,9 @@ PROTECTED_ROUTES = [
     ("POST", "/api/files/upload-batch?project_id=x"),
     ("POST", "/api/project/x/import/github"),
     ("GET", "/api/project/x/imports"),
+    # The webhook itself is signature-gated (GitHub cannot carry a JWT), but
+    # reading the delivery log is admin-only.
+    ("GET", "/api/webhooks/github/events"),
 ]
 
 
@@ -116,6 +119,28 @@ def test_a2a_agent_card_is_public():
     resp = client.get("/a2a/.well-known/agent.json")
     assert resp.status_code == 200
     assert resp.json()["agent_id"] == "zorali-ai-v1"
+
+
+def test_github_webhook_takes_a_signature_not_a_jwt(raw_client, monkeypatch):
+    """The inbound webhook cannot require a JWT — GitHub has none — so the
+    HMAC signature is its authentication. An unsigned delivery is refused
+    with 401 even though the route declares no user dependency, and with no
+    secret configured the endpoint is closed entirely."""
+    monkeypatch.setattr("app.api.webhooks.settings.github_webhook_secret", "s3cret")
+    unsigned = raw_client.post(
+        "/api/webhooks/github",
+        content=b"{}",
+        headers={"X-GitHub-Event": "push", "X-GitHub-Delivery": "d1"},
+    )
+    assert unsigned.status_code == 401
+
+    monkeypatch.setattr("app.api.webhooks.settings.github_webhook_secret", "")
+    unconfigured = raw_client.post(
+        "/api/webhooks/github",
+        content=b"{}",
+        headers={"X-GitHub-Event": "push", "X-GitHub-Delivery": "d2"},
+    )
+    assert unconfigured.status_code == 503
 
 
 # ── Per-user data isolation (Phase 3) ────────────────────────────────────────

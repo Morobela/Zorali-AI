@@ -9,6 +9,8 @@ Controls wired into real request paths today (each verifiable in code):
 - **Sandboxed code execution** — `python -I` subprocess with clean env, timeout and output caps, double-gated behind `CODE_EXECUTION_ENABLED` plus admin+ role (`backend/app/tools/code_sandbox.py`).
 - **WebSocket auth** — single-use Redis-backed tickets; JWTs never appear in WebSocket URLs (`backend/app/core/tickets.py`).
 - **Per-user isolation** — every repository read and write is owner-scoped (`backend/app/db/repositories.py`).
+- **Inbound webhook verification** — `POST /api/webhooks/github` authenticates with HMAC-SHA256 over the raw body (`X-Hub-Signature-256`), compared in constant time; it refuses every request when no secret is configured, can be pinned to one repository, and dedupes retries by delivery id. Deliveries can only produce event rows, a diagnosis goal and a notification — no write-capable tool is reachable from that path (`backend/app/api/webhooks.py`).
+- **Repository import** — server-side clones accept github.com `owner/repo` only, run `git` as an argument list with prompts/submodules/hooks disabled under a timeout, and never log or store the optional token (`backend/app/ingestion/github_import.py`).
 
 The standalone safety stubs (command guard, prompt-integrity envelope, action
 classifier) were unwired and deleted in the truth pass; reintroducing them

@@ -17,6 +17,7 @@ from app.api.ws_ticket import router as ws_ticket_router
 from app.api.artifacts import router as artifacts_router
 from app.api.goals import router as goals_router
 from app.api.imports import router as imports_router
+from app.api.webhooks import router as webhooks_router
 from app.api.notifications import router as notifications_router
 from app.api.skills import router as skills_router
 from app.api.inference_stats import router as inference_router
@@ -124,6 +125,7 @@ app.include_router(a2a_router)
 app.include_router(notifications_router)
 app.include_router(goals_router)
 app.include_router(imports_router)
+app.include_router(webhooks_router)
 
 # New enhancement routes
 app.include_router(skills_router)
@@ -158,6 +160,7 @@ async def root():
             "durable-goals",
             "bulk-ingestion",
             "repository-import",
+            "github-event-inbox",
             "fault-tolerant-orchestration",
             "async-batch-processing",
             "energy-aware-inference",

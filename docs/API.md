@@ -1,6 +1,8 @@
 # API
 
 - GET /api/health
+- POST /api/webhooks/github (no JWT — HMAC-SHA256 `X-Hub-Signature-256` over the raw body is the authentication; 503 when `GITHUB_WEBHOOK_SECRET` is unset, 401 on a bad signature, deliveries deduped by `X-GitHub-Delivery`)
+- GET /api/webhooks/github/events (admin+; recent inbound deliveries)
 - GET /api/goals (authenticated, owner-scoped; `?project_id=`) · GET /api/goals/{goal_id}
 - POST /api/files/upload-batch?project_id= (authenticated; multi-file, per-file accept/reject)
 - POST /api/project/{id}/import/github (authenticated, owner-scoped; `{repo, ref?, token?}` → 202 + import id)

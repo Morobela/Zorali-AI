@@ -30,6 +30,7 @@ from app.db.models import (
     Chunk,
     File,
     Goal,
+    InboundEvent,
     Memory,
     MemoryTriple,
     Notification,
@@ -188,6 +189,23 @@ def _goal_dict(row: Goal, tasks: list[Task] | None = None) -> dict[str, Any]:
         "created_at": _iso(row.created_at),
         "updated_at": _iso(row.updated_at),
         "tasks": [_task_dict(t) for t in (tasks if tasks is not None else row.tasks)],
+    }
+
+
+def _inbound_event_dict(row: InboundEvent) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "source": row.source,
+        "delivery_id": row.delivery_id,
+        "event_type": row.event_type,
+        "action": row.action,
+        "repo": row.repo,
+        "ref": row.ref,
+        "summary": row.summary,
+        "payload": dict(row.payload or {}),
+        "status": row.status,
+        "goal_id": row.goal_id,
+        "created_at": _iso(row.created_at),
     }
 
 
@@ -1414,6 +1432,76 @@ class Repository:
                     row.started_at = None
                 return len(rows)
 
+    # ── Inbound events (U5) ─────────────────────────────────────────────────
+
+    async def record_inbound_event(
+        self,
+        *,
+        delivery_id: str,
+        event_type: str,
+        source: str = "github",
+        action: str = "",
+        repo_name: str = "",
+        ref: str = "",
+        summary: str = "",
+        payload: dict | None = None,
+        status: str = "received",
+    ) -> tuple[dict[str, Any], bool]:
+        """Record a delivery, idempotently.
+
+        Returns ``(event, created)``. A redelivery of the same
+        ``delivery_id`` returns the existing row with ``created=False`` so the
+        caller can skip re-running whatever routine it triggered.
+        """
+        async with SessionLocal() as session:
+            async with session.begin():
+                existing = (
+                    await session.execute(
+                        select(InboundEvent).where(InboundEvent.delivery_id == delivery_id)
+                    )
+                ).scalar_one_or_none()
+                if existing is not None:
+                    return _inbound_event_dict(existing), False
+                row = InboundEvent(
+                    id=str(uuid4()), source=source, delivery_id=delivery_id,
+                    event_type=event_type, action=action, repo=repo_name, ref=ref,
+                    summary=summary, payload=payload or {}, status=status,
+                )
+                session.add(row)
+            return _inbound_event_dict(row), True
+
+    async def update_inbound_event(
+        self,
+        event_id: str,
+        *,
+        status: str | None = None,
+        goal_id: str | None = None,
+        summary: str | None = None,
+    ) -> dict[str, Any] | None:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = await session.get(InboundEvent, event_id)
+                if row is None:
+                    return None
+                if status is not None:
+                    row.status = status
+                if goal_id is not None:
+                    row.goal_id = goal_id
+                if summary is not None:
+                    row.summary = summary
+                return _inbound_event_dict(row)
+
+    async def list_inbound_events(
+        self, *, event_type: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        async with SessionLocal() as session:
+            stmt = select(InboundEvent)
+            if event_type:
+                stmt = stmt.where(InboundEvent.event_type == event_type)
+            stmt = stmt.order_by(InboundEvent.created_at.desc(), InboundEvent.id.desc()).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_inbound_event_dict(r) for r in rows]
+
     # ── Repository imports (U6) ─────────────────────────────────────────────
 
     async def create_import(
@@ -1572,9 +1660,19 @@ class Repository:
                 return len(rows)
 
     async def list_admin_user_ids(self) -> list[str]:
-        """Accounts that receive system notifications (admin and owner roles)."""
+        """Accounts that receive system notifications (admin and owner roles).
+
+        Ordered oldest first, deterministically: routines that must attribute
+        work to a single account (the CI-failure diagnosis goal) take the
+        first entry, so on a multi-admin deployment the owner of that work is
+        stable rather than whatever the query planner returned.
+        """
         async with SessionLocal() as session:
-            stmt = select(User.id).where(User.role.in_(("admin", "owner")))
+            stmt = (
+                select(User.id)
+                .where(User.role.in_(("admin", "owner")))
+                .order_by(User.created_at, User.id)
+            )
             return list((await session.execute(stmt)).scalars().all())
 
     # ── Reality events (U3) ─────────────────────────────────────────────────
