@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Awaitable
 from uuid import uuid4
+from app.core.audit import audit, AuditEvent
+from app.inference.cost_meter import UNCAPPED, cost_meter
 from app.orchestration.fault_tolerant import FaultTolerantExecutor, TaskSession
 
 
@@ -30,7 +32,11 @@ class QueuedTask:
     mode: ExecutionMode = ExecutionMode.ON_DEMAND
     run_at: float | None = None  # unix timestamp for scheduled tasks
     interval_s: float | None = None  # repeat interval for continuous tasks
-    max_cost_usd: float = 10.0  # Higgsfield cost budget cap
+    # Budget this task may spend on inference (capability map U7). A producer
+    # that tracks spend passes what is left of its allowance; the worker
+    # refuses a task whose budget is exhausted rather than running it and
+    # discovering the overspend afterwards. UNCAPPED means no ceiling.
+    max_cost_usd: float = UNCAPPED
     submitted_at: float = field(default_factory=time.time)
 
     def __lt__(self, other: "QueuedTask") -> bool:
@@ -133,7 +139,19 @@ class TaskQueue:
 
     async def _execute(self, task: QueuedTask) -> None:
         try:
-            session = await self._executor.run(task.name, task.fn)
+            if task.max_cost_usd <= 0:
+                # No budget left: refuse rather than spend. The producer sees
+                # this through its own accounting (a goal pauses itself).
+                audit.record(
+                    AuditEvent.TOOL_BLOCKED, resource=task.name,
+                    outcome="budget_exhausted", max_cost_usd=task.max_cost_usd,
+                )
+                return
+            # Real spend for this task, so `stats()["cost_spent_usd"]` reports
+            # what was actually paid instead of a constant zero.
+            with cost_meter() as meter:
+                session = await self._executor.run(task.name, task.fn)
+            self._cost_spent += meter.total_usd
             self._history.append(session)
             if task.mode == ExecutionMode.CONTINUOUS and task.interval_s:
                 await asyncio.sleep(task.interval_s)

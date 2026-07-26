@@ -23,6 +23,7 @@ from app.agents.nodes import _build_tools_system_prompt
 from app.agents.reasoning import strip_think
 from app.core.config import settings
 from app.db.repositories import repo
+from app.inference.cost_meter import UNCAPPED, cost_meter
 from app.models.llm import stream_llm
 from app.orchestration.task_queue import ExecutionMode, QueuedTask, task_queue
 
@@ -76,6 +77,7 @@ class GoalEngine:
         emit_token: Callable[[str], Awaitable[None]] | None = None,
         model: str | None = None,
         local_first: bool = True,
+        max_cost_usd: float | None = None,
     ) -> dict:
         """Plan an objective, persist the plan, then execute it."""
         emit = emit or _noop_emit
@@ -83,6 +85,8 @@ class GoalEngine:
         goal = await repo.create_goal(
             objective, plan, project_id=project_id, session_id=session_id,
             owner_id=owner_id, status="running",
+            max_cost_usd=settings.goal_max_cost_usd if max_cost_usd is None else max_cost_usd,
+            model=model or "", local_first=local_first,
         )
         await self._emit_goal(emit, goal["id"], "plan", owner_id=owner_id)
         return await self.execute_goal(
@@ -99,12 +103,17 @@ class GoalEngine:
         emit: EmitFn | None = None,
         emit_token: Callable[[str], Awaitable[None]] | None = None,
         model: str | None = None,
-        local_first: bool = True,
+        local_first: bool | None = None,
     ) -> dict:
         """Drive a persisted goal to completion (or failure).
 
         Returns the final goal record. Safe to call on a partially executed
         goal — that is exactly what resume does.
+
+        Routing falls back to what the goal was started with, so a resume
+        (from the API or the boot sweep) continues on the same model rather
+        than silently switching — which would also price its spend against a
+        different table than the budget was set for.
         """
         emit = emit or _noop_emit
         goal = await repo.get_goal(goal_id, owner_id=owner_id)
@@ -112,10 +121,17 @@ class GoalEngine:
             return {}
         objective = goal["objective"]
         project_id = goal["project_id"]
+        model = model or (goal.get("model") or None)
+        local_first = goal.get("local_first", True) if local_first is None else local_first
 
         executed = 0
         replans = 0
         while executed < settings.goal_max_steps:
+            # Budget check before committing to more work (capability map U7).
+            paused = await self._pause_if_over_budget(goal_id, owner_id=owner_id, emit=emit)
+            if paused is not None:
+                return paused
+
             batch = await repo.runnable_step_batch(
                 goal_id, owner_id=owner_id, limit=settings.goal_max_parallel_steps
             )
@@ -198,6 +214,67 @@ class GoalEngine:
                 continue
         return resumed
 
+    # ── budget (U7) ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _budget_state(goal: dict) -> tuple[float, float, float]:
+        """(spent, cap, threshold). A cap of 0 means uncapped."""
+        spent = float(goal.get("cost_usd") or 0.0)
+        cap = float(goal.get("max_cost_usd") or 0.0)
+        threshold = cap * settings.goal_budget_warn_ratio if cap > 0 else 0.0
+        return spent, cap, threshold
+
+    async def _pause_if_over_budget(
+        self, goal_id: str, *, owner_id: str, emit: EmitFn
+    ) -> dict | None:
+        """Park the goal when its spend reaches the warning ratio of its cap.
+
+        Returns the paused goal record, or ``None`` when there is budget left.
+        A paused goal is never auto-resumed — the boot sweep only picks up
+        ``planning``/``running`` — so the next move is explicitly a human's:
+        resume, or raise the cap.
+        """
+        goal = await repo.get_goal(goal_id, owner_id=owner_id)
+        if goal is None:
+            return None
+        spent, cap, threshold = self._budget_state(goal)
+        if cap <= 0 or spent < threshold:
+            return None
+
+        pct = (spent / cap * 100) if cap else 0.0
+        reason = (
+            f"Paused at ${spent:.4f} of the ${cap:.4f} budget ({pct:.0f}% — the "
+            f"pause threshold is {settings.goal_budget_warn_ratio:.0%}). "
+            "Resume to continue, or raise the cap first."
+        )
+        await repo.pause_goal(goal_id, reason, owner_id=owner_id)
+        await self._notify_paused(goal, reason, owner_id=owner_id)
+        await self._emit_goal(emit, goal_id, "goal_paused", owner_id=owner_id)
+        return await repo.get_goal(goal_id, owner_id=owner_id) or {}
+
+    async def _remaining_budget(self, goal_id: str, *, owner_id: str) -> float:
+        """Budget a goal may still spend. ``UNCAPPED`` when it has no ceiling."""
+        goal = await repo.get_goal(goal_id, owner_id=owner_id)
+        if goal is None:
+            return 0.0
+        spent, cap, _ = self._budget_state(goal)
+        if cap <= 0:
+            return UNCAPPED
+        return max(0.0, round(cap - spent, 8))
+
+    @staticmethod
+    async def _notify_paused(goal: dict, reason: str, *, owner_id: str) -> None:
+        """Tell the owner their goal is waiting on a budget decision."""
+        try:
+            await repo.create_notification(
+                owner_id,
+                "goal_paused",
+                f"Goal paused on budget: {goal['objective'][:80]}",
+                body=reason,
+            )
+        except Exception:
+            return
+
     # ── internals ───────────────────────────────────────────────────────────
 
     async def _run_batch(
@@ -241,12 +318,18 @@ class GoalEngine:
                 finally:
                     done_events[step["id"]].set()
 
+            # What the goal may still spend, handed to the queue so a task
+            # submitted with no budget left is refused rather than run (U7).
+            remaining = await self._remaining_budget(
+                step_kwargs["goal_id"], owner_id=step_kwargs["owner_id"]
+            )
             for step in batch:
                 await task_queue.enqueue(QueuedTask(
                     name=f"goal-step:{step['id'][:8]}",
                     fn=partial(_queued, step),
                     mode=ExecutionMode.ON_DEMAND,
                     priority=4,
+                    max_cost_usd=remaining,
                 ))
             try:
                 await asyncio.wait_for(
@@ -287,10 +370,15 @@ class GoalEngine:
         await repo.start_step(step["id"], owner_id=owner_id)
         await self._emit_goal(emit, goal_id, "step_started", owner_id=owner_id, step=step)
 
-        result, error = await self._run_step(
-            step, goal_id=goal_id, owner_id=owner_id, emit=emit,
-            emit_token=emit_token, **run_kwargs,
-        )
+        # Everything this step spends on inference is attributed to it, even
+        # when sibling steps run concurrently in their own tasks (U7).
+        with cost_meter() as meter:
+            result, error = await self._run_step(
+                step, goal_id=goal_id, owner_id=owner_id, emit=emit,
+                emit_token=emit_token, **run_kwargs,
+            )
+        if meter.total_usd > 0 or meter.calls:
+            await repo.add_goal_cost(goal_id, step["id"], meter.total_usd, owner_id=owner_id)
         if error is None:
             await repo.finish_step(
                 step["id"], status="completed", result=result, owner_id=owner_id

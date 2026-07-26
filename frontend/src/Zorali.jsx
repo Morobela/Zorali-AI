@@ -12,7 +12,7 @@ import { apiGet, apiPost, apiPut, apiPatch, apiUpload, apiDelete } from './api/h
 import TopbarPills from './components/TopbarPills.jsx'
 import GoalChecklist from './components/GoalChecklist.jsx'
 import RepoImport from './components/RepoImport.jsx'
-import { applyGoalToken, applyGoalUpdate, isGoalFinished } from './state/goalMessages.js'
+import { applyGoalToken, applyGoalUpdate, isGoalFinished, replaceGoal } from './state/goalMessages.js'
 
 // ─── Suggestion cards ─────────────────────────────────────────────────────────
 const SUGGESTIONS = [
@@ -128,7 +128,7 @@ function ToolSteps({ steps }) {
 }
 
 // ─── Message component ─────────────────────────────────────────────────────────
-function Message({ message, canRegenerate, onRegenerate, onSpeak, canEdit, onEdit }) {
+function Message({ message, canRegenerate, onRegenerate, onSpeak, canEdit, onEdit, onResumeGoal }) {
   const isUser = message.role === 'user'
   const content = message.content || ''
   const citations = message.citations || []
@@ -155,7 +155,9 @@ function Message({ message, canRegenerate, onRegenerate, onSpeak, canEdit, onEdi
           </div>
         )}
         {!isUser && <ToolSteps steps={message.steps} />}
-        {!isUser && message.goal && <GoalChecklist goal={message.goal} event={message.goalEvent} />}
+        {!isUser && message.goal && (
+          <GoalChecklist goal={message.goal} event={message.goalEvent} onResume={onResumeGoal} />
+        )}
         {!isUser && thinking && (
           <details className="thinking-block" open={message.streaming && !answer}>
             <summary>🧠 Thinking{message.streaming && !answer ? '…' : ''}</summary>
@@ -681,6 +683,20 @@ export default function Zorali() {
     send(lastUser.content, { regenerate: true })
   }
 
+  // Resume a goal paused on budget (U7), optionally raising its cap. Resume
+  // runs server-side in the background with no live stream, so the checklist
+  // is refreshed from the API once it has started.
+  async function resumeGoal(goalId, newCap) {
+    try {
+      await apiPost(`/api/goals/${goalId}/resume`, newCap == null ? {} : { max_cost_usd: newCap })
+      showToast('Goal resumed', 'success')
+      const refreshed = await apiGet(`/api/goals/${goalId}`)
+      setMessages(prev => replaceGoal(prev, refreshed))
+    } catch (err) {
+      showToast(`Could not resume goal: ${err.message}`, 'error')
+    }
+  }
+
   // ── Project actions ───────────────────────────────────────────────────────
   async function handleAddProject(name) {
     setShowNewProject(false)
@@ -1054,6 +1070,7 @@ export default function Zorali() {
               onSpeak={'speechSynthesis' in window ? speak : null}
               canEdit={!isStreaming && m.role === 'user' && i === messages.map(x => x.role).lastIndexOf('user')}
               onEdit={content => { setInput(content); setEditingLast(true) }}
+              onResumeGoal={resumeGoal}
             />
           ))}
           <div ref={bottomRef} />

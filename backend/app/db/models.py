@@ -18,7 +18,9 @@ from uuid import uuid4
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Identity,
     Integer,
@@ -265,6 +267,26 @@ class Goal(Base):
         String(16), nullable=False, default="planning", server_default="planning", index=True
     )
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Budget (capability map U7). ``cost_usd`` accumulates what the goal's
+    # steps actually spent on inference; ``max_cost_usd`` is its ceiling, and
+    # 0 means no ceiling. A goal that reaches the warning ratio of its cap
+    # parks in ``paused`` with the explanation in ``pause_reason`` — it is
+    # never auto-resumed, only a human resumes or raises the cap.
+    cost_usd: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    max_cost_usd: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    pause_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Routing the goal was started with. Persisted because a goal outlives the
+    # request that created it: a resume (by API, or by the boot sweep) must
+    # continue on the same model it began on, or its accumulated spend would
+    # be measured against different prices than the ones it was capped for.
+    model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    local_first: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
@@ -335,6 +357,10 @@ class TaskStep(Base):
     result: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # What this step's inference actually cost (capability map U7).
+    cost_usd: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

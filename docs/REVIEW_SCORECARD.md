@@ -29,11 +29,12 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap
 
 ## Honest remaining deltas vs frontier products
 
-- **Per-task cost budgets** — planning, replanning, durable goal state (U1)
-  and parallel execution of independent steps through the task queue (U2) all
-  shipped. What remains from the agent-loop gaps is spend control:
-  `QueuedTask.max_cost_usd` is still unenforced, so a goal cannot yet pause
-  itself at a ceiling (capability map U7).
+- **Model-per-task-type routing** — the agent-loop gaps this review named are
+  now closed: planning and replanning with durable goal state (U1), parallel
+  execution of independent steps (U2), and per-goal cost budgets that pause a
+  goal at its ceiling instead of spending through it (U7). The optional half
+  of U7 is not done: the planner does not yet assign a cheaper model to
+  mechanical steps and a stronger one to synthesis.
 - **Automatic memory extraction from conversations** — memories are saved
   explicitly; the triple extractor exists but is not yet run on chat turns.
 - **Iterative research refinement** — deep research does one search round

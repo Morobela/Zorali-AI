@@ -4,6 +4,7 @@ from typing import AsyncIterator
 from app.core.telemetry import track_event
 from app.providers.ollama_provider import OllamaProvider
 from app.providers.cloud_provider import CloudProvider
+from app.inference.cost_meter import record_cost
 from app.inference.energy_scorer import energy_scorer
 from app.core.audit import audit, AuditEvent
 
@@ -47,6 +48,9 @@ class ProviderRouter:
                     input_tokens=input_tokens,
                     output_tokens=token_count,
                 )
+                # Attribute the spend to whatever unit of work is running
+                # (a goal step, a queued task). No-op outside a meter.
+                record_cost(score.cost_usd, provider.name)
                 track_event(
                     "provider_success",
                     provider=provider.name,
