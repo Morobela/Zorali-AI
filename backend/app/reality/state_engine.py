@@ -20,6 +20,7 @@ from app.db.repositories import repo
 from app.reality.git_scanner import scan_git
 from app.reality.log_scanner import scan_logs
 from app.reality.service_health import check_services
+from app.resilience.recovery import attempt_restart
 
 CHECKPOINT_NAME = "reality_state"
 
@@ -113,6 +114,11 @@ class RealityStateEngine:
         self._carry_dirty_since(prev, curr)
 
         events = self.diff(prev, curr) if prev else []
+        # One opt-in recovery action (U9): a service that just went down may
+        # be restarted, if the operator enabled it and the service is on the
+        # allowlist. Off by default, in which case this only records that it
+        # would have done nothing — the outage still alerts either way.
+        await self._attempt_recovery(events)
         for event in events:
             await repo.create_reality_event(
                 event["kind"], event["subject"],
@@ -122,6 +128,27 @@ class RealityStateEngine:
 
         self._checkpoints.save(CHECKPOINT_NAME, curr)
         return {"snapshot": curr, "events": events}
+
+    @staticmethod
+    async def _attempt_recovery(events: list[dict]) -> None:
+        """Try one restart per newly-down service, recording the outcome.
+
+        The result is written onto the event so it reaches the notification
+        and the event row: an action Zorali took must never be invisible.
+        """
+        for event in events:
+            if event["kind"] != "service_down":
+                continue
+            try:
+                outcome = await attempt_restart(event["subject"])
+            except Exception as exc:  # recovery must not break the scan
+                outcome = {"attempted": False, "ok": False, "reason": str(exc)}
+            event["data"]["recovery"] = outcome
+            if outcome.get("attempted"):
+                verb = "restarted" if outcome.get("ok") else "restart failed"
+                event["detail"] += f" — {verb} ({outcome.get('reason', '')})"
+            elif settings.recovery_actions_enabled:
+                event["detail"] += f" — no restart: {outcome.get('reason', '')}"
 
     @staticmethod
     async def _notify(events: list[dict]) -> None:

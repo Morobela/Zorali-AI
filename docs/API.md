@@ -3,6 +3,7 @@
 - GET /api/health
 - POST /api/webhooks/github (no JWT — HMAC-SHA256 `X-Hub-Signature-256` over the raw body is the authentication; 503 when `GITHUB_WEBHOOK_SECRET` is unset, 401 on a bad signature, deliveries deduped by `X-GitHub-Delivery`)
 - GET /api/webhooks/github/events (admin+; recent inbound deliveries)
+- GET /api/backups (admin+; manifest only — dumps are never served over HTTP) · POST /api/backups/run (admin+)
 - GET /api/self-check (admin+; nightly self-check history) · POST /api/self-check/run (admin+; runs it now, reports only)
 - GET /api/goals (authenticated, owner-scoped; `?project_id=`) · GET /api/goals/{goal_id}
 - PATCH /api/goals/{goal_id}/budget (authenticated, owner-scoped; `{max_cost_usd}`, 0 = uncapped)

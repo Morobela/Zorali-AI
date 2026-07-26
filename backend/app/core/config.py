@@ -68,6 +68,21 @@ class Settings(BaseSettings):
     # Checkpoint persistence (TensorFlow SavedModel-inspired)
     checkpoint_enabled: bool = True
 
+    # Backups (capability map U9): a nightly pg_dump into the data directory,
+    # keeping the last N. Local disk only — no credentials leave the host.
+    backup_enabled: bool = True
+    backup_hour_utc: int = Field(default=2, ge=0, le=23)
+    backup_keep: int = Field(default=7, ge=1, le=365)
+    backup_timeout_seconds: float = Field(default=900.0, ge=10.0)
+
+    # One opt-in recovery action: restart a compose service when the reality
+    # scan sees it go down. Off by default — detection and alerting have to be
+    # trusted before anything is allowed to act on them.
+    recovery_actions_enabled: bool = False
+    # Comma-separated allowlist. postgres/backend are refused even if listed.
+    recovery_restart_services: str = "ollama"
+    recovery_cooldown_minutes: float = Field(default=30.0, ge=1.0)
+
     # Durable goal engine (capability map U1): WS `goal` mode plans an
     # objective into persisted tasks/steps and executes them, so work in
     # flight survives a restart.
