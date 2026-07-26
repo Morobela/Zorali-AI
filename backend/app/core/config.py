@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     # Guard so a stalled queue can never hang a goal: past this the engine
     # finishes the batch itself.
     goal_parallel_timeout_seconds: float = Field(default=300.0, ge=5.0)
+    # Per-goal inference budget in USD (capability map U7); 0 = uncapped.
+    # Local inference is free, so this only bites once a goal falls back to a
+    # paid provider.
+    goal_max_cost_usd: float = Field(default=1.0, ge=0.0)
+    # Fraction of the cap at which a goal pauses itself for a human decision,
+    # rather than running until the money is gone.
+    goal_budget_warn_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
 
     # Reality engine (capability map U3): a continuous task probes services,
     # scans git and tails logs, diffs consecutive snapshots into event rows,
@@ -120,6 +127,14 @@ class Settings(BaseSettings):
     github_token: str = ""
     # Turn a CI failure into a diagnosis goal + notification.
     github_ci_routine_enabled: bool = True
+
+    # Gated self-improvement (capability map U8, phase one). Off by default:
+    # the run executes the suite and, with a token, opens GitHub issues, so
+    # enabling it is a deliberate act. It never changes code — issues only.
+    self_improvement_enabled: bool = False
+    self_check_hour_utc: int = Field(default=3, ge=0, le=23)
+    # The suite is the slow part; it can be skipped on constrained hosts.
+    self_check_run_tests: bool = True
 
     # Repository import (capability map U6): clone a GitHub repo and stream
     # its text files through the normal ingestion pipeline.

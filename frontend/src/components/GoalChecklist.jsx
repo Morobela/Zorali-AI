@@ -11,11 +11,14 @@ const STEP_ICON = {
   pending: '○',
 }
 
-export default function GoalChecklist({ goal, event }) {
+export default function GoalChecklist({ goal, event, onResume }) {
+  const [cap, setCap] = React.useState('')
   if (!goal) return null
   const tasks = goal.tasks || []
   const steps = tasks.flatMap(t => t.steps || [])
   const done = steps.filter(s => s.status === 'completed').length
+  const capped = (goal.max_cost_usd || 0) > 0
+  const spent = goal.cost_usd || 0
 
   return (
     <div className="goal-card">
@@ -24,6 +27,33 @@ export default function GoalChecklist({ goal, event }) {
         <strong className="goal-objective">{goal.objective}</strong>
         <span className="goal-count">{done}/{steps.length}</span>
       </div>
+      {(capped || spent > 0) && (
+        <div className="goal-budget">
+          ${spent.toFixed(4)}{capped ? ` / $${goal.max_cost_usd.toFixed(4)} budget` : ' spent'}
+        </div>
+      )}
+      {goal.status === 'paused' && (
+        <div className="goal-paused">
+          <div>{goal.pause_reason}</div>
+          {onResume && (
+            <div className="goal-resume">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={cap}
+                onChange={e => setCap(e.target.value)}
+                placeholder={`new cap (now $${(goal.max_cost_usd || 0).toFixed(2)})`}
+                aria-label="New budget cap"
+              />
+              <button
+                className="pill-btn"
+                onClick={() => onResume(goal.id, cap === '' ? null : Number(cap))}
+              >Resume</button>
+            </div>
+          )}
+        </div>
+      )}
       {event === 'replanned' && (
         <div className="goal-replanned">Plan revised after a failed step.</div>
       )}

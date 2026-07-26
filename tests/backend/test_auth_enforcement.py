@@ -32,8 +32,10 @@ PROTECTED_ROUTES = [
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/unread-count"),
     ("POST", "/api/notifications/read-all"),
-    # Durable goals carry the owner's objectives and step results.
+    # Durable goals carry the owner's objectives, step results and spend.
     ("GET", "/api/goals"),
+    ("PATCH", "/api/goals/x/budget"),
+    ("POST", "/api/goals/x/resume"),
     # Bulk ingestion and repository import touch a project's contents.
     ("POST", "/api/files/upload-batch?project_id=x"),
     ("POST", "/api/project/x/import/github"),
@@ -41,6 +43,9 @@ PROTECTED_ROUTES = [
     # The webhook itself is signature-gated (GitHub cannot carry a JWT), but
     # reading the delivery log is admin-only.
     ("GET", "/api/webhooks/github/events"),
+    # Self-check runs describe the codebase; admin-only.
+    ("GET", "/api/self-check"),
+    ("POST", "/api/self-check/run"),
 ]
 
 

@@ -209,6 +209,26 @@ textarea { resize: vertical; }
 .goal-status.completed { background: #d6efc7; color: var(--zorali-green-dark); }
 .goal-status.failed { background: #f8d7da; color: #842029; }
 .goal-replanned { font-size: 11px; color: var(--zorali-muted); margin-top: 6px; }
+.goal-status.paused { background: #fff3cd; color: #7a5b00; }
+.goal-budget { font-size: 11px; color: var(--zorali-muted); margin-top: 6px; }
+.goal-paused {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #f0d68a;
+  border-radius: 8px;
+  background: #fffaeb;
+  font-size: 12px;
+  color: #7a5b00;
+}
+.goal-resume { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+.goal-resume input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--zorali-border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
 .goal-task { margin-top: 8px; }
 .goal-task-title { font-size: 11px; font-weight: 600; color: var(--zorali-muted); margin-bottom: 4px; }
 .goal-step { display: flex; gap: 8px; padding: 4px 0; font-size: 12px; }

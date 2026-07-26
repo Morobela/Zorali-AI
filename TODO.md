@@ -25,9 +25,14 @@ against the code in the Phase-6 sweep.
 - [ ] More inbound event sources (capability map U5 shipped one: HMAC-verified
       GitHub webhooks → CI-failure diagnosis goals + notifications). Issues,
       deploys and review requests are the obvious next ones.
-- [ ] Per-goal cost budgets (capability map U7): wire the still-unused
-      `QueuedTask.max_cost_usd` against `inference/energy_scorer` so a goal
-      pauses at its ceiling instead of running unbounded.
+- [ ] Backup/restore routine (capability map U9): scheduled `pg_dump` with
+      keep-last-N rotation and a documented restore path.
+- [ ] Self-improvement phase two (capability map U8): propose patches as
+      branches + PRs gated on CI. Phase one (nightly checks → issues) shipped;
+      merge authority stays human, permanently — auto-merge is never built.
+- [ ] Model-per-task-type routing (the optional half of capability map U7):
+      let the planner assign a small local model to mechanical steps and a
+      stronger one to synthesis. Budgets and pausing shipped; this did not.
 - [ ] Safety gating (command_guard / prompt_integrity / action_classifier): the unwired stubs were deleted in the truth pass; these remain good ideas to reintroduce properly, wired into the tool registry's execution path.
 - [ ] Artifact side-panel live preview/rendering.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.

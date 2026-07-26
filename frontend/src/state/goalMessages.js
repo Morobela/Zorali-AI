@@ -27,6 +27,13 @@ export function applyGoalUpdate(messages, msg) {
   return copy
 }
 
+/** Refresh a goal snapshot already attached to a message (after a resume,
+ * which runs in the background with no live goal_update stream). */
+export function replaceGoal(messages, goal) {
+  if (!goal?.id) return messages
+  return messages.map(m => (m.goal?.id === goal.id ? { ...m, goal } : m))
+}
+
 /** Append streamed step output to the streaming assistant message. */
 export function applyGoalToken(messages, msg) {
   const copy = [...messages]

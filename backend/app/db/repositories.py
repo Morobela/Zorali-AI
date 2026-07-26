@@ -37,6 +37,7 @@ from app.db.models import (
     Project,
     RealityEvent,
     RepoImport,
+    SelfCheck,
     SessionSummary,
     Task,
     TaskStep,
@@ -159,6 +160,7 @@ def _step_dict(row: TaskStep) -> dict[str, Any]:
         "result": row.result,
         "error": row.error,
         "attempts": row.attempts,
+        "cost_usd": round(row.cost_usd or 0.0, 6),
         "started_at": _iso(row.started_at),
         "completed_at": _iso(row.completed_at),
     }
@@ -186,9 +188,26 @@ def _goal_dict(row: Goal, tasks: list[Task] | None = None) -> dict[str, Any]:
         "objective": row.objective,
         "status": row.status,
         "error": row.error,
+        "cost_usd": round(row.cost_usd or 0.0, 6),
+        "max_cost_usd": round(row.max_cost_usd or 0.0, 6),
+        "pause_reason": row.pause_reason,
+        "model": row.model,
+        "local_first": row.local_first,
         "created_at": _iso(row.created_at),
         "updated_at": _iso(row.updated_at),
         "tasks": [_task_dict(t) for t in (tasks if tasks is not None else row.tasks)],
+    }
+
+
+def _self_check_dict(row: SelfCheck) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "status": row.status,
+        "findings": list(row.findings or []),
+        "issues_filed": row.issues_filed,
+        "error": row.error,
+        "started_at": _iso(row.started_at),
+        "finished_at": _iso(row.finished_at),
     }
 
 
@@ -1155,6 +1174,9 @@ class Repository:
         session_id: str = "",
         owner_id: str,
         status: str = "running",
+        max_cost_usd: float = 0.0,
+        model: str = "",
+        local_first: bool = True,
     ) -> dict[str, Any]:
         """Persist a goal and its planned tasks/steps in one transaction.
 
@@ -1168,6 +1190,8 @@ class Repository:
                 goal = Goal(
                     id=str(uuid4()), owner_id=owner_id, project_id=project_id,
                     session_id=session_id, objective=objective, status=status,
+                    max_cost_usd=max(0.0, float(max_cost_usd)),
+                    model=model or "", local_first=bool(local_first),
                 )
                 session.add(goal)
                 tasks: list[Task] = []
@@ -1392,6 +1416,75 @@ class Repository:
                 task.error = ""
                 return [_step_dict(s) for s in created]
 
+    async def add_goal_cost(
+        self, goal_id: str, step_id: str | None, usd: float, *, owner_id: Caller
+    ) -> dict[str, Any] | None:
+        """Add a step's spend to the goal's running total (capability map U7).
+
+        The increment happens inside the transaction that reads the row, so
+        two steps finishing at once cannot lose an update. Returns the goal's
+        budget state: ``{cost_usd, max_cost_usd}``.
+        """
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(Goal).where(Goal.id == goal_id).with_for_update()
+                if owner_filter is not None:
+                    stmt = stmt.where(Goal.owner_id == owner_filter)
+                goal = (await session.execute(stmt)).scalar_one_or_none()
+                if goal is None:
+                    return None
+                goal.cost_usd = round((goal.cost_usd or 0.0) + max(0.0, usd), 8)
+                goal.updated_at = _utc_now()
+                if step_id:
+                    step = await session.get(TaskStep, step_id)
+                    if step is not None:
+                        step.cost_usd = round((step.cost_usd or 0.0) + max(0.0, usd), 8)
+                return {
+                    "id": goal.id,
+                    "cost_usd": round(goal.cost_usd, 6),
+                    "max_cost_usd": round(goal.max_cost_usd or 0.0, 6),
+                }
+
+    async def set_goal_budget(
+        self, goal_id: str, max_cost_usd: float, *, owner_id: Caller
+    ) -> dict[str, Any] | None:
+        """Raise (or lower) a goal's ceiling. 0 means uncapped."""
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(Goal).where(Goal.id == goal_id)
+                if owner_filter is not None:
+                    stmt = stmt.where(Goal.owner_id == owner_filter)
+                goal = (await session.execute(stmt)).scalar_one_or_none()
+                if goal is None:
+                    return None
+                goal.max_cost_usd = max(0.0, float(max_cost_usd))
+                goal.updated_at = _utc_now()
+                return {
+                    "id": goal.id, "status": goal.status,
+                    "cost_usd": round(goal.cost_usd or 0.0, 6),
+                    "max_cost_usd": round(goal.max_cost_usd, 6),
+                }
+
+    async def pause_goal(
+        self, goal_id: str, reason: str, *, owner_id: Caller
+    ) -> dict[str, Any] | None:
+        """Park a goal at its budget ceiling, with the explanation attached."""
+        owner_filter = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(Goal).where(Goal.id == goal_id)
+                if owner_filter is not None:
+                    stmt = stmt.where(Goal.owner_id == owner_filter)
+                goal = (await session.execute(stmt)).scalar_one_or_none()
+                if goal is None:
+                    return None
+                goal.status = "paused"
+                goal.pause_reason = reason
+                goal.updated_at = _utc_now()
+                return {"id": goal.id, "status": goal.status, "pause_reason": goal.pause_reason}
+
     async def set_goal_status(
         self, goal_id: str, status: str, *, error: str = "", owner_id: Caller
     ) -> dict[str, Any] | None:
@@ -1406,6 +1499,10 @@ class Repository:
                     return None
                 row.status = status
                 row.error = error or ""
+                # A pause explanation only applies while the goal is paused;
+                # resuming must not leave a stale reason on the record.
+                if status != "paused":
+                    row.pause_reason = ""
                 row.updated_at = _utc_now()
                 return {
                     "id": row.id, "status": row.status, "error": row.error,
@@ -1431,6 +1528,46 @@ class Repository:
                     row.status = "pending"
                     row.started_at = None
                 return len(rows)
+
+    # ── Self-check runs (U8) ────────────────────────────────────────────────
+
+    async def create_self_check(self) -> dict[str, Any]:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = SelfCheck(id=str(uuid4()), status="running")
+                session.add(row)
+            return _self_check_dict(row)
+
+    async def finish_self_check(
+        self,
+        check_id: str,
+        *,
+        status: str,
+        findings: list[dict],
+        issues_filed: int = 0,
+        error: str = "",
+    ) -> dict[str, Any] | None:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = await session.get(SelfCheck, check_id)
+                if row is None:
+                    return None
+                row.status = status
+                row.findings = findings
+                row.issues_filed = issues_filed
+                row.error = error
+                row.finished_at = _utc_now()
+                return _self_check_dict(row)
+
+    async def list_self_checks(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with SessionLocal() as session:
+            stmt = (
+                select(SelfCheck)
+                .order_by(SelfCheck.started_at.desc(), SelfCheck.id.desc())
+                .limit(limit)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_self_check_dict(r) for r in rows]
 
     # ── Inbound events (U5) ─────────────────────────────────────────────────
 

@@ -1,8 +1,8 @@
 // GoalChecklist: renders a durable goal's plan from a goal_update snapshot
 // (capability map U1) — step states, progress count, results and errors.
 import React from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import GoalChecklist from '../../frontend/src/components/GoalChecklist.jsx'
 import {
   applyGoalToken,
@@ -64,6 +64,36 @@ describe('GoalChecklist', () => {
     render(<GoalChecklist goal={{ ...GOAL, status: 'failed', error: 'no viable replan' }} />)
     expect(screen.getByText('no viable replan')).toBeTruthy()
     expect(screen.getByText('failed')).toBeTruthy()
+  })
+
+  it('shows the budget and, when paused, the reason plus a resume control', () => {
+    const onResume = vi.fn()
+    const paused = {
+      ...GOAL,
+      status: 'paused',
+      cost_usd: 0.09,
+      max_cost_usd: 0.1,
+      pause_reason: 'Paused at $0.0900 of the $0.1000 budget (90% — the pause threshold is 80%).',
+    }
+    render(<GoalChecklist goal={paused} onResume={onResume} />)
+
+    expect(screen.getByText(/\$0\.0900 \/ \$0\.1000 budget/)).toBeTruthy()
+    expect(screen.getByText(/Paused at \$0\.0900/)).toBeTruthy()
+
+    // Resuming without touching the cap sends no new cap …
+    fireEvent.click(screen.getByText('Resume'))
+    expect(onResume).toHaveBeenCalledWith('g1', null)
+
+    // … and typing one passes it through.
+    fireEvent.change(screen.getByLabelText('New budget cap'), { target: { value: '2.5' } })
+    fireEvent.click(screen.getByText('Resume'))
+    expect(onResume).toHaveBeenLastCalledWith('g1', 2.5)
+  })
+
+  it('hides budget chrome for an uncapped goal that has spent nothing', () => {
+    render(<GoalChecklist goal={GOAL} />)
+    expect(screen.queryByText(/budget/)).toBeNull()
+    expect(screen.queryByText('Resume')).toBeNull()
   })
 })
 
