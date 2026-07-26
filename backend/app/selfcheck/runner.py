@@ -21,6 +21,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.core.scheduling import seconds_until_next_run
 from app.db.repositories import repo
 from app.selfcheck import github_issues
 from app.selfcheck.parity_checker import app_routes, check_parity_doc, settings_names
@@ -179,12 +180,6 @@ async def _notify(findings: list[Finding], issues_filed: int) -> None:
         return
 
 
-def seconds_until_next_run(now_epoch: float, hour_utc: int) -> float:
-    """Seconds from ``now`` until the next occurrence of ``hour_utc``."""
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.fromtimestamp(now_epoch, tz=timezone.utc)
-    target = now.replace(hour=hour_utc % 24, minute=0, second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    return (target - now).total_seconds()
+# Re-exported: the backup routine (U9) schedules the same way, so the
+# calculation moved to app.core.scheduling.
+__all__ = ["run_self_check", "check_parity", "check_lint", "check_tests", "seconds_until_next_run"]

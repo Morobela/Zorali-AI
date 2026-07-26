@@ -18,6 +18,7 @@ from app.api.ws_ticket import router as ws_ticket_router
 from app.api.artifacts import router as artifacts_router
 from app.api.goals import router as goals_router
 from app.api.imports import router as imports_router
+from app.api.resilience import router as resilience_router
 from app.api.selfcheck import router as selfcheck_router
 from app.api.webhooks import router as webhooks_router
 from app.api.notifications import router as notifications_router
@@ -26,6 +27,7 @@ from app.api.inference_stats import router as inference_router
 from app.a2a.endpoint import router as a2a_router
 from app.core.config import settings
 from app.core.rate_limiter import limiter
+from app.core.scheduling import seconds_until_next_run as _seconds_until
 from app.db.repositories import repo
 from app.core.metrics import metrics_endpoint, metrics_middleware
 from app.agents.goal_engine import goal_engine
@@ -69,7 +71,7 @@ async def lifespan(application: FastAPI):
         # parity checker, then file issues for what they find. Propose-only —
         # it never changes code, and merge authority is never automated.
         async def _nightly_self_check() -> None:
-            from app.selfcheck.runner import run_self_check, seconds_until_next_run
+            from app.selfcheck.runner import run_self_check
 
             await run_self_check(run_tests=settings.self_check_run_tests)
             # Re-arm for the next night.
@@ -77,19 +79,39 @@ async def lifespan(application: FastAPI):
                 name="self-check",
                 fn=_nightly_self_check,
                 mode=ExecutionMode.SCHEDULED,
-                run_at=time.time() + seconds_until_next_run(
-                    time.time(), settings.self_check_hour_utc
-                ),
+                run_at=time.time() + _seconds_until(time.time(), settings.self_check_hour_utc),
                 priority=8,
             ))
-
-        from app.selfcheck.runner import seconds_until_next_run as _next_run
 
         await task_queue.enqueue(QueuedTask(
             name="self-check",
             fn=_nightly_self_check,
             mode=ExecutionMode.SCHEDULED,
-            run_at=time.time() + _next_run(time.time(), settings.self_check_hour_utc),
+            run_at=time.time() + _seconds_until(time.time(), settings.self_check_hour_utc),
+            priority=8,
+        ))
+
+    if settings.backup_enabled:
+        # Nightly pg_dump with keep-last-N rotation (capability map U9).
+        # Only a failed backup notifies — a nightly "backup ok" would train
+        # people to ignore the channel that also carries "backup failed".
+        async def _nightly_backup() -> None:
+            from app.resilience.backup import notify_backup_result, run_backup
+
+            await notify_backup_result(await run_backup())
+            await task_queue.enqueue(QueuedTask(
+                name="pg-backup",
+                fn=_nightly_backup,
+                mode=ExecutionMode.SCHEDULED,
+                run_at=time.time() + _seconds_until(time.time(), settings.backup_hour_utc),
+                priority=8,
+            ))
+
+        await task_queue.enqueue(QueuedTask(
+            name="pg-backup",
+            fn=_nightly_backup,
+            mode=ExecutionMode.SCHEDULED,
+            run_at=time.time() + _seconds_until(time.time(), settings.backup_hour_utc),
             priority=8,
         ))
 
@@ -158,6 +180,7 @@ app.include_router(goals_router)
 app.include_router(imports_router)
 app.include_router(webhooks_router)
 app.include_router(selfcheck_router)
+app.include_router(resilience_router)
 
 # New enhancement routes
 app.include_router(skills_router)
@@ -194,6 +217,7 @@ async def root():
             "repository-import",
             "github-event-inbox",
             "nightly-self-check-propose-only",
+            "scheduled-backups-with-rotation",
             "fault-tolerant-orchestration",
             "async-batch-processing",
             "energy-aware-inference",

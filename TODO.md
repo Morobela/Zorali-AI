@@ -25,8 +25,6 @@ against the code in the Phase-6 sweep.
 - [ ] More inbound event sources (capability map U5 shipped one: HMAC-verified
       GitHub webhooks → CI-failure diagnosis goals + notifications). Issues,
       deploys and review requests are the obvious next ones.
-- [ ] Backup/restore routine (capability map U9): scheduled `pg_dump` with
-      keep-last-N rotation and a documented restore path.
 - [ ] Self-improvement phase two (capability map U8): propose patches as
       branches + PRs gated on CI. Phase one (nightly checks → issues) shipped;
       merge authority stays human, permanently — auto-merge is never built.

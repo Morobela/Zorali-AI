@@ -46,6 +46,9 @@ PROTECTED_ROUTES = [
     # Self-check runs describe the codebase; admin-only.
     ("GET", "/api/self-check"),
     ("POST", "/api/self-check/run"),
+    # Backups describe the deployment; admin-only.
+    ("GET", "/api/backups"),
+    ("POST", "/api/backups/run"),
 ]
 
 
