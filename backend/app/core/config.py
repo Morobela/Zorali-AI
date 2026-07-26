@@ -128,6 +128,14 @@ class Settings(BaseSettings):
     # Turn a CI failure into a diagnosis goal + notification.
     github_ci_routine_enabled: bool = True
 
+    # Gated self-improvement (capability map U8, phase one). Off by default:
+    # the run executes the suite and, with a token, opens GitHub issues, so
+    # enabling it is a deliberate act. It never changes code — issues only.
+    self_improvement_enabled: bool = False
+    self_check_hour_utc: int = Field(default=3, ge=0, le=23)
+    # The suite is the slow part; it can be skipped on constrained hosts.
+    self_check_run_tests: bool = True
+
     # Repository import (capability map U6): clone a GitHub repo and stream
     # its text files through the normal ingestion pipeline.
     github_import_enabled: bool = True

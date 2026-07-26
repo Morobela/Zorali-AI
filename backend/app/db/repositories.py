@@ -37,6 +37,7 @@ from app.db.models import (
     Project,
     RealityEvent,
     RepoImport,
+    SelfCheck,
     SessionSummary,
     Task,
     TaskStep,
@@ -195,6 +196,18 @@ def _goal_dict(row: Goal, tasks: list[Task] | None = None) -> dict[str, Any]:
         "created_at": _iso(row.created_at),
         "updated_at": _iso(row.updated_at),
         "tasks": [_task_dict(t) for t in (tasks if tasks is not None else row.tasks)],
+    }
+
+
+def _self_check_dict(row: SelfCheck) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "status": row.status,
+        "findings": list(row.findings or []),
+        "issues_filed": row.issues_filed,
+        "error": row.error,
+        "started_at": _iso(row.started_at),
+        "finished_at": _iso(row.finished_at),
     }
 
 
@@ -1515,6 +1528,46 @@ class Repository:
                     row.status = "pending"
                     row.started_at = None
                 return len(rows)
+
+    # ── Self-check runs (U8) ────────────────────────────────────────────────
+
+    async def create_self_check(self) -> dict[str, Any]:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = SelfCheck(id=str(uuid4()), status="running")
+                session.add(row)
+            return _self_check_dict(row)
+
+    async def finish_self_check(
+        self,
+        check_id: str,
+        *,
+        status: str,
+        findings: list[dict],
+        issues_filed: int = 0,
+        error: str = "",
+    ) -> dict[str, Any] | None:
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = await session.get(SelfCheck, check_id)
+                if row is None:
+                    return None
+                row.status = status
+                row.findings = findings
+                row.issues_filed = issues_filed
+                row.error = error
+                row.finished_at = _utc_now()
+                return _self_check_dict(row)
+
+    async def list_self_checks(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with SessionLocal() as session:
+            stmt = (
+                select(SelfCheck)
+                .order_by(SelfCheck.started_at.desc(), SelfCheck.id.desc())
+                .limit(limit)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_self_check_dict(r) for r in rows]
 
     # ── Inbound events (U5) ─────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,7 @@ from app.api.ws_ticket import router as ws_ticket_router
 from app.api.artifacts import router as artifacts_router
 from app.api.goals import router as goals_router
 from app.api.imports import router as imports_router
+from app.api.selfcheck import router as selfcheck_router
 from app.api.webhooks import router as webhooks_router
 from app.api.notifications import router as notifications_router
 from app.api.skills import router as skills_router
@@ -61,6 +63,35 @@ async def lifespan(application: FastAPI):
                 print(f"[Zorali] Goal resume failed: {exc}")
 
         asyncio.create_task(_resume_goals())
+
+    if settings.self_improvement_enabled:
+        # Nightly self-check (capability map U8): run the suite, ruff and the
+        # parity checker, then file issues for what they find. Propose-only —
+        # it never changes code, and merge authority is never automated.
+        async def _nightly_self_check() -> None:
+            from app.selfcheck.runner import run_self_check, seconds_until_next_run
+
+            await run_self_check(run_tests=settings.self_check_run_tests)
+            # Re-arm for the next night.
+            await task_queue.enqueue(QueuedTask(
+                name="self-check",
+                fn=_nightly_self_check,
+                mode=ExecutionMode.SCHEDULED,
+                run_at=time.time() + seconds_until_next_run(
+                    time.time(), settings.self_check_hour_utc
+                ),
+                priority=8,
+            ))
+
+        from app.selfcheck.runner import seconds_until_next_run as _next_run
+
+        await task_queue.enqueue(QueuedTask(
+            name="self-check",
+            fn=_nightly_self_check,
+            mode=ExecutionMode.SCHEDULED,
+            run_at=time.time() + _next_run(time.time(), settings.self_check_hour_utc),
+            priority=8,
+        ))
 
     # A repository import runs in a background task; one interrupted by a
     # restart would otherwise claim to be importing forever (capability map
@@ -126,6 +157,7 @@ app.include_router(notifications_router)
 app.include_router(goals_router)
 app.include_router(imports_router)
 app.include_router(webhooks_router)
+app.include_router(selfcheck_router)
 
 # New enhancement routes
 app.include_router(skills_router)
@@ -161,6 +193,7 @@ async def root():
             "bulk-ingestion",
             "repository-import",
             "github-event-inbox",
+            "nightly-self-check-propose-only",
             "fault-tolerant-orchestration",
             "async-batch-processing",
             "energy-aware-inference",

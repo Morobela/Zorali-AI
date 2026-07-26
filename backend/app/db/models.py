@@ -367,6 +367,31 @@ class TaskStep(Base):
     task: Mapped["Task"] = relationship(back_populates="steps")
 
 
+class SelfCheck(Base):
+    """One nightly self-check run (capability map U8).
+
+    Records what the run found and how many issues it filed, so a human can
+    see the history without reading the tracker. System-scoped: this describes
+    the codebase, not a user's data.
+
+    Statuses: ``running`` → ``clean`` / ``findings`` / ``failed``.
+    """
+
+    __tablename__ = "self_checks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="running", server_default="running", index=True
+    )
+    findings: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    issues_filed: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class InboundEvent(Base):
     """One event delivered to Zorali from outside (capability map U5).
 

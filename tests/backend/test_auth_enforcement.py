@@ -43,6 +43,9 @@ PROTECTED_ROUTES = [
     # The webhook itself is signature-gated (GitHub cannot carry a JWT), but
     # reading the delivery log is admin-only.
     ("GET", "/api/webhooks/github/events"),
+    # Self-check runs describe the codebase; admin-only.
+    ("GET", "/api/self-check"),
+    ("POST", "/api/self-check/run"),
 ]
 
 

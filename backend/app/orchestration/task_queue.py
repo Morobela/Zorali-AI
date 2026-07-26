@@ -119,9 +119,11 @@ class TaskQueue:
                     continue
                 _, _, task = await asyncio.wait_for(self._queue.get(), timeout=1.0)
                 if task.run_at and time.time() < task.run_at:
-                    # Not yet due — requeue
+                    # Not yet due — requeue and wait proportionally. A task
+                    # scheduled hours out (the nightly self-check) must not be
+                    # re-checked twice a second for those hours.
                     await self._queue.put((task.priority, task.submitted_at, task))
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(min(30.0, max(0.5, (task.run_at - time.time()) / 4)))
                     continue
                 t = asyncio.create_task(self._execute(task))
                 self._active[task.task_id] = t
