@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 
+from app.agents.model_policy import GENERAL, SYNTHESIS, normalize_kind
 from app.models.llm import stream_llm
 
 MAX_TASKS = 8
@@ -27,10 +28,17 @@ MAX_REPLAN_STEPS = 8
 _PLAN_PROMPT = """You are Zorali's planner. Decompose the user's objective into a short, ordered plan.
 
 Reply with JSON ONLY, in exactly this shape:
-{"tasks": [{"title": "short task name", "steps": [{"instruction": "one concrete action", "depends_on": []}]}]}
+{"tasks": [{"title": "short task name", "steps": [{"instruction": "one concrete action", "kind": "synthesis", "depends_on": []}]}]}
 
 Rules:
 - 1 to 4 tasks, each with 1 to 4 steps. Fewer is better.
+- "kind" is what sort of work the step is, one of: classification (deciding
+  which category something falls into), extraction (pulling stated facts out
+  of text), research (finding information), synthesis (writing, summarising,
+  reasoning across sources), code (writing or changing code). Label honestly:
+  mechanical steps may be routed to a smaller, cheaper model, so calling
+  routine work "synthesis" wastes money and calling real synthesis
+  "classification" produces a worse answer.
 - Each step's "instruction" must be a self-contained action an assistant can
   carry out in one turn (research something, draft something, summarize
   something). Never reference "the previous step" implicitly — say what is needed.
@@ -47,7 +55,7 @@ A step of the current goal failed. Decide how the remaining work should
 proceed, given what already succeeded and how the step failed.
 
 Reply with JSON ONLY, in exactly this shape:
-{"steps": [{"instruction": "one concrete action", "depends_on": []}]}
+{"steps": [{"instruction": "one concrete action", "kind": "synthesis", "depends_on": []}]}
 
 Rules:
 - 0 to 4 steps. Return {"steps": []} if the goal cannot sensibly continue.
@@ -89,10 +97,12 @@ def _normalize_steps(raw_steps: object, *, limit: int) -> list[dict]:
         return []
     steps: list[dict] = []
     for entry in raw_steps[:limit]:
+        kind = GENERAL
         if isinstance(entry, str):
             instruction, depends = entry, []
         elif isinstance(entry, dict):
             instruction = entry.get("instruction") or entry.get("step") or entry.get("action") or ""
+            kind = normalize_kind(entry.get("kind") or entry.get("type"))
             raw_depends = entry.get("depends_on")
             depends = [
                 int(d) for d in raw_depends
@@ -107,6 +117,7 @@ def _normalize_steps(raw_steps: object, *, limit: int) -> list[dict]:
         position = len(steps)
         steps.append({
             "instruction": instruction,
+            "kind": kind,
             "depends_on": sorted({d for d in depends if 0 <= d < position}),
         })
     return steps
@@ -118,7 +129,12 @@ def normalize_plan(parsed: dict | None, objective: str) -> list[dict]:
     Falls back to one task with a single step (the objective itself) whenever
     the reply is missing, malformed or empty.
     """
-    fallback = [{"title": objective[:200], "steps": [{"instruction": objective, "depends_on": []}]}]
+    # The fallback carries the whole objective, so it is synthesis work — not
+    # something to route to the cheapest model by accident.
+    fallback = [{
+        "title": objective[:200],
+        "steps": [{"instruction": objective, "kind": SYNTHESIS, "depends_on": []}],
+    }]
     if not isinstance(parsed, dict):
         return fallback
 

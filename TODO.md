@@ -28,9 +28,6 @@ against the code in the Phase-6 sweep.
 - [ ] Self-improvement phase two (capability map U8): propose patches as
       branches + PRs gated on CI. Phase one (nightly checks → issues) shipped;
       merge authority stays human, permanently — auto-merge is never built.
-- [ ] Model-per-task-type routing (the optional half of capability map U7):
-      let the planner assign a small local model to mechanical steps and a
-      stronger one to synthesis. Budgets and pausing shipped; this did not.
 - [ ] Safety gating (command_guard / prompt_integrity / action_classifier): the unwired stubs were deleted in the truth pass; these remain good ideas to reintroduce properly, wired into the tool registry's execution path.
 - [ ] Artifact side-panel live preview/rendering.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.

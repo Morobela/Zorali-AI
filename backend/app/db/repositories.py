@@ -155,6 +155,8 @@ def _step_dict(row: TaskStep) -> dict[str, Any]:
         "goal_id": row.goal_id,
         "idx": row.idx,
         "instruction": row.instruction,
+        "kind": row.kind,
+        "model": row.model,
         "depends_on": list(row.depends_on or []),
         "status": row.status,
         "result": row.result,
@@ -1209,6 +1211,7 @@ class Repository:
                             id=str(uuid4()), task_id=task.id, goal_id=goal.id,
                             owner_id=owner_id, idx=s_idx,
                             instruction=str(step_spec.get("instruction", ""))[:4000],
+                            kind=str(step_spec.get("kind") or "general")[:32],
                             depends_on=[int(d) for d in (step_spec.get("depends_on") or [])],
                         )
                         session.add(step)
@@ -1323,7 +1326,9 @@ class Repository:
         first_task = runnable[0]["task_id"]
         return [s for s in runnable if s["task_id"] == first_task][: max(1, limit)]
 
-    async def start_step(self, step_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+    async def start_step(
+        self, step_id: str, *, owner_id: Caller, model: str | None = None
+    ) -> dict[str, Any] | None:
         owner_filter = resolve_owner_filter(owner_id)
         async with SessionLocal() as session:
             async with session.begin():
@@ -1333,6 +1338,10 @@ class Repository:
                 row = (await session.execute(stmt)).scalar_one_or_none()
                 if row is None:
                     return None
+                # Record what this attempt actually runs on, so the goal's
+                # spend can be explained per step rather than guessed at.
+                if model:
+                    row.model = model[:128]
                 row.status = "running"
                 row.attempts = (row.attempts or 0) + 1
                 row.started_at = _utc_now()
@@ -1408,6 +1417,7 @@ class Repository:
                         id=str(uuid4()), task_id=task.id, goal_id=task.goal_id,
                         owner_id=task.owner_id, idx=next_idx + offset,
                         instruction=str(spec.get("instruction", ""))[:4000],
+                        kind=str(spec.get("kind") or "general")[:32],
                         depends_on=[next_idx + int(d) for d in (spec.get("depends_on") or [])],
                     )
                     session.add(step)

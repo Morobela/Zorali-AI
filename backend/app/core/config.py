@@ -99,6 +99,12 @@ class Settings(BaseSettings):
     # Guard so a stalled queue can never hang a goal: past this the engine
     # finishes the batch itself.
     goal_parallel_timeout_seconds: float = Field(default=300.0, ge=5.0)
+    # Route goal steps by the kind of work they are (capability map U7,
+    # optional half): "classification=llama3.2:1b,synthesis=gpt-4o". Empty
+    # means every step uses the default model, as before. A model chosen for
+    # the goal itself always outranks this.
+    step_model_policy: str = ""
+
     # Per-goal inference budget in USD (capability map U7); 0 = uncapped.
     # Local inference is free, so this only bites once a goal falls back to a
     # paid provider.

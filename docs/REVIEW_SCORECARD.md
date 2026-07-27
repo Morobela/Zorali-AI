@@ -29,12 +29,13 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap
 
 ## Honest remaining deltas vs frontier products
 
-- **Model-per-task-type routing** — the agent-loop gaps this review named are
-  now closed: planning and replanning with durable goal state (U1), parallel
-  execution of independent steps (U2), and per-goal cost budgets that pause a
-  goal at its ceiling instead of spending through it (U7). The optional half
-  of U7 is not done: the planner does not yet assign a cheaper model to
-  mechanical steps and a stronger one to synthesis.
+- *(closed)* **Agent-loop gaps** — every gap this review named is now shipped:
+  planning and replanning with durable goal state (U1), parallel execution of
+  independent steps (U2), per-goal cost budgets that pause a goal at its
+  ceiling (U7), and model-per-task-type routing — the planner labels each step
+  (classification, extraction, research, synthesis, code) and
+  `STEP_MODEL_POLICY` routes mechanical steps to a smaller model, with a
+  model chosen for the goal always outranking the policy.
 - **Automatic memory extraction from conversations** — memories are saved
   explicitly; the triple extractor exists but is not yet run on chat turns.
 - **Iterative research refinement** — deep research does one search round

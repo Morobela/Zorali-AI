@@ -19,6 +19,7 @@ from typing import Awaitable, Callable
 
 from app.agents.chat_tools import run_chat_tool_loop
 from app.agents.goal_planner import plan_goal, replan
+from app.agents.model_policy import model_for_step
 from app.agents.nodes import _build_tools_system_prompt
 from app.agents.reasoning import strip_think
 from app.core.config import settings
@@ -121,7 +122,11 @@ class GoalEngine:
             return {}
         objective = goal["objective"]
         project_id = goal["project_id"]
-        model = model or (goal.get("model") or None)
+        # Kept apart on purpose: an explicit argument overrides everything, the
+        # goal's own model is the user's choice and outranks the step policy,
+        # and only where neither is set may STEP_MODEL_POLICY route by kind.
+        goal_model = goal.get("model") or None
+        planning_model = model or goal_model
         local_first = goal.get("local_first", True) if local_first is None else local_first
 
         executed = 0
@@ -144,7 +149,8 @@ class GoalEngine:
             outcomes = await self._run_batch(
                 batch, objective=objective, project_id=project_id, goal_id=goal_id,
                 owner_id=owner_id, caller_role=caller_role, emit=emit,
-                emit_token=emit_token, model=model, local_first=local_first,
+                emit_token=emit_token, model=model, goal_model=goal_model,
+                local_first=local_first,
             )
             executed += len(batch)
 
@@ -164,7 +170,8 @@ class GoalEngine:
             completed, remaining = await self._plan_context(goal_id, step, owner_id=owner_id)
             new_steps = await replan(
                 objective, failed_instruction=step["instruction"], error=error,
-                completed=completed, remaining=remaining, model=model, local_first=local_first,
+                completed=completed, remaining=remaining, model=planning_model,
+                local_first=local_first,
             )
             replans += 1
             if not new_steps:
@@ -363,11 +370,21 @@ class GoalEngine:
         owner_id: str,
         emit: EmitFn,
         emit_token: Callable[[str], Awaitable[None]] | None,
+        goal_model: str | None = None,
         **run_kwargs,
     ) -> str | None:
         """Mark a step running, execute it, record the outcome. Returns the
         error string, or ``None`` on success."""
-        await repo.start_step(step["id"], owner_id=owner_id)
+        # Route by the kind of work this step is: a classification step does
+        # not need the model that writes the final report (U7, optional half).
+        # A model the caller or the goal specified always wins.
+        step_model = model_for_step(
+            step.get("kind"),
+            explicit_model=run_kwargs.get("model"),
+            goal_model=goal_model,
+        )
+        run_kwargs["model"] = step_model
+        await repo.start_step(step["id"], owner_id=owner_id, model=step_model or "")
         await self._emit_goal(emit, goal_id, "step_started", owner_id=owner_id, step=step)
 
         # Everything this step spends on inference is attributed to it, even

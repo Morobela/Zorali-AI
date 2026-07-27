@@ -65,6 +65,11 @@ export default function GoalChecklist({ goal, event, onResume }) {
               <span className="goal-step-icon">{STEP_ICON[step.status] || '○'}</span>
               <span className="goal-step-body">
                 <span className="goal-step-instruction">{step.instruction}</span>
+                {step.model && (
+                  <span className="goal-step-model">
+                    {step.kind && step.kind !== 'general' ? `${step.kind} · ` : ''}{step.model}
+                  </span>
+                )}
                 {step.status === 'completed' && step.result && (
                   <span className="goal-step-result">{step.result}</span>
                 )}
