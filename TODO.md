@@ -11,8 +11,11 @@ text/PDF/docx/xlsx, multi-file upload and GitHub repository import,
 deep research, graph memory, vision input, opt-in
 `python -I` code sandbox, durable multi-step goals with planning, replanning,
 parallel independent steps on the task queue and resume-after-restart (WS
-`goal` mode), reality engine + proactive notifications, HMAC-verified GitHub
-event inbox with CI-failure diagnosis, React/Vite PWA frontend (react-markdown + KaTeX +
+`goal` mode), per-goal cost budgets that pause a goal at its ceiling,
+model-per-kind step routing, reality engine + proactive notifications,
+HMAC-verified GitHub event inbox with CI-failure diagnosis, a propose-only
+nightly self-check, nightly verified backups with a tested restore path and one
+opt-in recovery action, React/Vite PWA frontend (react-markdown + KaTeX +
 highlight), dev and prod compose stacks, full CI (ruff, backend tests
 against real Postgres+Redis, Vitest, docker builds, pip-audit/npm audit).
 
@@ -35,3 +38,22 @@ against the code in the Phase-6 sweep.
 - [ ] Iterative deep research (multi-round search → read → re-search).
 - [ ] User-configurable proactive routines (the built-in reality-scan routine
       with notifications shipped as U3/U4; custom scans/schedules are next).
+
+## Engineering debt (from the 2026-07 docs sweep)
+- [ ] **Versioned WebSocket frame schema.** `api/chat.py` still dispatches on a
+      bare `mode` string with no `schema_version` or `request_id`, and `goal`
+      mode added a second frame producer (`goal_update`) to that untyped
+      surface. The oldest open item in `docs/CODE_ANALYSIS.md` and now the
+      largest.
+- [ ] **Delete `backend/app/zorali.py`.** An unreferenced echo stub — nothing in
+      `backend/app` or `tests` imports it. Same category as the modules removed
+      in the truth pass; it was missed because no doc pointed at it honestly.
+- [ ] **Make the localhost CORS origins conditional on `APP_ENV`.**
+      `allow_origins` includes `localhost:5173` and `127.0.0.1:5173`
+      unconditionally, including in production.
+- [ ] **Point the parity checker at more than one document.** The nightly
+      self-check audits `FEATURE_PARITY.md` only. Every stale claim found in the
+      docs sweep lived somewhere it never reads — `ARCHITECTURE.md` asserting a
+      vLLM backend that does not exist, `governance/OWASP_LLM_MAPPING.md` still
+      calling cost budgets unenforced. Extending it to the other docs would have
+      caught all of them.
