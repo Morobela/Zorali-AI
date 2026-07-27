@@ -8,8 +8,20 @@ The shipped `.env.example` enables everything that is safe and self-contained.
 Copying it (`cp .env.example .env`) gives you a deployment where Zorali scans
 its own infrastructure, notifies you, runs durable goals under a spend cap,
 routes mechanical steps to a small local model, backs itself up nightly, and
-audits its own documentation. **An existing `.env` does not gain these
-automatically** — diff it against `.env.example` and copy the new block over.
+audits its own documentation.
+
+**An existing `.env` does not gain these automatically** — compose reads the
+file you already have, so a deployment that copied the template once keeps
+running on the code defaults. Carry the new settings across with:
+
+```bash
+infra/scripts/sync-env.sh          # defaults to .env and .env.example
+```
+
+It appends only the keys you are missing, with the comments that explain them,
+after backing the file up. Values you have already set are never overwritten —
+where yours differs from the template it says so and leaves it alone, because
+turning a feature on is your call, not a migration's.
 
 Three things need something only you can provide:
 
