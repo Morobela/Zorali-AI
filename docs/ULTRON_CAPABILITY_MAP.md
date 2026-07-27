@@ -1,5 +1,17 @@
 # Ultron capability study → Zorali implementation map
 
+> **Status: the build list is complete.** U1–U9 shipped between 2026-07-23 and
+> 2026-07-27, each with its definition of done demonstrated against a running
+> system rather than asserted (PRs #30–#38), plus the optional half of U7
+> (model-per-kind routing). The truth pass that was a prerequisite to all of it
+> shipped first.
+>
+> **Sections 2 and 3 are a point-in-time audit taken on 2026-07-22, before any
+> of this was built.** Read them as the starting state, not as current claims —
+> "Zorali has never once initiated contact" was true then and is not true now.
+> `docs/ARCHITECTURE.md` describes what exists today; the build list in
+> section 4 carries a status line per item.
+
 **Basis.** Character capabilities are taken from what Ultron is actually depicted doing in *Avengers: Age of Ultron* (2015), verified against Marvel's official on-screen character report (marvel.com/characters/ultron/on-screen and /on-screen/profile). Zorali's status is taken from a direct audit of the uploaded repository: every backend package read, the frontend surveyed, and the full backend test suite executed against real Postgres 16 + pgvector and Redis (217 tests passed). No claim below rests on the README alone.
 
 **Scope.** Only the constructive engineering properties are extracted. Ultron's malicious behaviors are excluded by design; Section 5 states what is deliberately not adopted and which existing Zorali controls enforce that.
@@ -59,6 +71,31 @@ Audit findings, file-level and honest. "Stub" means code that exists but returns
 
 Ordered by leverage for a solo maintainer. Each item is scoped so it can be driven as one phased Claude Code prompt against the repo, in the workflow already in use. "DoD" = definition of done, phrased as a test you can run.
 
+**All nine shipped.** Every DoD below was demonstrated against a running system —
+a killed backend resuming a goal, Redis stopped between real scan cycles, a
+signed webhook accepted and an unsigned one refused, a budget pause at 86% of
+cap, an injected parity overclaim producing named issues, a `pg_dump` restored
+into a scratch database — not asserted from reading the code.
+
+| Item | Lives in | Status |
+|---|---|---|
+| U1 durable goals | `agents/goal_planner.py`, `agents/goal_engine.py`, WS `goal` mode | shipped |
+| U2 parallel steps | `agents/goal_engine.py` → `orchestration/task_queue.py` | shipped |
+| U3 reality engine | `reality/` (service health, git, logs, state engine) | shipped |
+| U4 proactive channel | `api/notifications.py`, `NotificationBell`/`NotificationPanel` | shipped |
+| U5 event inbox | `api/webhooks.py`, CI-failure routine | shipped |
+| U6 bulk ingest + importer | `ingestion/github_import.py`, `api/imports.py` | shipped |
+| U7 budget enforcement | `inference/cost_meter.py`, goal engine | shipped, **including** the optional model-per-kind routing (`agents/model_policy.py`) |
+| U8 gated self-improvement | `selfcheck/` | phase one shipped; phase two deliberately never built |
+| U9 resilience routine | `resilience/backup.py`, `resilience/recovery.py` | shipped |
+
+Two things changed shape during the build and are worth recording. U2 surfaced
+two real bugs in the pre-existing task queue — an unguarded worker loop and an
+`asyncio.Queue` bound to the wrong event loop — that no producer had ever
+exercised. And U8's parity checker initially saw only 6 of 71 routes, because
+FastAPI's `_IncludedRouter` wrappers hid the rest; it now walks
+`original_router` plus the OpenAPI paths.
+
 **U1 — Durable Goal Engine (delivers P6 and the core of P2).**
 Add `goals`, `tasks`, and `task_steps` tables via an Alembic migration (the migration setup is already solid), with status, ordering, dependencies, result text, and error per step, all owner-scoped like every other entity in `repositories.py`. Add a `goal` mode to the WebSocket protocol: one planning LLM call decomposes the objective into tasks, persists them, then executes each step through the existing `run_chat_tool_loop` — extend it, do not replace it. On step failure, a replan call receives the failure context (the same pattern as the existing retry fix, promoted from message-level to plan-level) and may rewrite the remaining steps. Stream `goal_update` events so the UI shows the checklist.
 *DoD: start a three-step goal, kill the backend after step one, restart, and the goal resumes from step two. That resume test is the Ultron property — the work does not die with the body.*
@@ -95,7 +132,7 @@ Phase one: a nightly `SCHEDULED` task runs the suite, ruff, and a small checker 
 A `SCHEDULED` pg_dump task with rotation (mirror the checkpoint manager's keep-last-N pattern), a documented restore path, and — after U3/U4 have proven detection works — an opt-in flag for one safe recovery action (restart a compose service), alert-only by default.
 *DoD: restore last night's dump into a scratch database and log in.*
 
-Prerequisite to all of it, carried over from the code audit: the truth pass. Delete or quarantine the dead modules (`safety/` stubs, `memory/episodic|semantic|causal.py`, `tools/discovery_engine.py`, `tools/policy_learner.py`), fix the `FEATURE_PARITY.md` reality-scan and A2A rows, and either make A2A execute submitted tasks through `route_agent` or remove the endpoint. It costs an afternoon and it is the difference between a repo that impresses on inspection and one that embarrasses on inspection.
+Prerequisite to all of it, carried over from the code audit: the truth pass — **done first, as prescribed**. Delete or quarantine the dead modules (`safety/` stubs, `memory/episodic|semantic|causal.py`, `tools/discovery_engine.py`, `tools/policy_learner.py`), fix the `FEATURE_PARITY.md` reality-scan and A2A rows, and either make A2A execute submitted tasks through `route_agent` or remove the endpoint. It costs an afternoon and it is the difference between a repo that impresses on inspection and one that embarrasses on inspection.
 
 ## 5. Deliberately not adopted, and what enforces it
 
@@ -104,6 +141,11 @@ The film's cautionary content maps onto controls Zorali already has; the rule is
 ## 6. Suggested sequence
 
 Truth pass → U3 + U4 (small, immediately visible, makes the docs true, first proactive behavior) → U1 (the core upgrade) → U2 → U6 → U5 → U7 → U8 → U9. U1 is the item that changes what Zorali *is*; everything after it compounds.
+
+*This sequence was followed exactly, and it held up.* Doing U3/U4 first meant
+every later item had a notification channel to report through and a scan to
+report about; doing the truth pass first meant nothing was built on top of a
+module that only looked implemented.
 
 ---
 

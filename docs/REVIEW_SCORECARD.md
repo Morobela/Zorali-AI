@@ -36,13 +36,21 @@ Legend: ✅ shipped · 🟡 partial · 🗺 roadmap
   (classification, extraction, research, synthesis, code) and
   `STEP_MODEL_POLICY` routes mechanical steps to a smaller model, with a
   model chosen for the goal always outranking the policy.
-- **Automatic memory extraction from conversations** — memories are saved
-  explicitly; the triple extractor exists but is not yet run on chat turns.
+- *(closed)* **Automatic memory extraction from conversations** — shipped as
+  `AUTO_MEMORY_ENABLED` (default on): every chat turn runs a pattern extractor
+  with one LLM fallback call, and durable-fact candidates land in an
+  Accept/Reject queue rather than being written silently. Pending candidates are
+  never searchable and never enter prompts (`backend/app/memory/auto_extract.py`,
+  called from `api/chat.py`).
 - **Iterative research refinement** — deep research does one search round
   (search → read → synthesize), not repeated query refinement.
 - **Duplex voice** — browser Web Speech API today; local whisper.cpp + Piper
   stack planned.
 - **Sandbox strength** — process isolation (`python -I`, clean env, timeout),
-  not container/VM isolation; hence disabled by default.
+  not container/VM isolation; hence off in code *and* in the shipped
+  `.env.example`, unlike every other autonomy flag.
+- **Self-improvement stops at proposing** — the nightly self-check files issues
+  and nothing else. This is a deliberate ceiling, not an unfinished item: the
+  code to open a pull request or merge one does not exist.
 - **Image generation / video** — out of scope for a local-first assistant until
   a production-grade local image model integration exists.

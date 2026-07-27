@@ -79,6 +79,49 @@ Postgres (with pgvector for embeddings).
 - Ollama local inference with optional OpenAI-compatible cloud fallback
 - Docker / docker-compose deployment (dev and production stacks)
 
+## Autonomy
+
+Zorali also acts without being asked. These are on in the shipped
+`.env.example`; `docs/ARCHITECTURE.md` explains how they fit together and
+`docs/governance/SYSTEM_CARD.md` states plainly what each one can and cannot do.
+
+- **Durable multi-step goals** (WS `goal` mode): one planning call decomposes an
+  objective into persisted `goals`/`tasks`/`task_steps`, each step runs through
+  the same tool loop as chat, a failed step triggers a replan of the remainder,
+  and the checklist streams live. State lives in Postgres, so **a killed backend
+  resumes from the next incomplete step on boot**
+- **Parallel steps**: independent steps of a task run concurrently on the
+  orchestration queue under `GOAL_MAX_PARALLEL_STEPS`, joined back into goal state
+- **Per-goal spend limits**: every provider call is priced and attributed to the
+  step that made it; at 80% of `GOAL_MAX_COST_USD` the goal **pauses itself**,
+  explains the numbers and notifies its owner. It is never auto-resumed
+- **Model routing by kind of work**: the planner labels each step
+  `classification`/`extraction`/`research`/`synthesis`/`code`, and
+  `STEP_MODEL_POLICY` sends mechanical steps to a small local model while
+  synthesis keeps the strong one. Each step records what it actually ran on
+- **Reality scan**: continuous probes of Ollama/Postgres/Redis/frontend plus git
+  and log-tail scanners; consecutive snapshots are diffed into `reality_events`
+- **Proactive notifications**: a service going down, an error-count jump or aging
+  uncommitted changes produce an unread notification with no user request. Only
+  changes for the worse notify, and only on a diff — a service that is still down
+  does not re-notify every scan
+- **GitHub event inbox**: HMAC-verified webhooks (`POST /api/webhooks/github`)
+  turn a CI failure into a diagnosis goal whose notification names the failing
+  test. Read-only by construction — nothing on that path can write to a repository
+- **Nightly self-check** (propose-only): runs the backend suite, ruff, and a
+  checker that verifies `docs/FEATURE_PARITY.md`'s own claims against the
+  codebase, then files one deduped GitHub issue per finding. **There is no code
+  to open a pull request or merge one** — merge authority is human by construction
+- **Nightly backups**: verified `pg_dump` with keep-last-N rotation and a
+  manifest, a restore path documented in `docs/DEPLOYMENT.md` and exercised by
+  the test suite. A failed backup notifies; a successful one is deliberately silent
+- **One opt-in recovery action**: restart an allowlisted compose service.
+  `postgres` and `backend` are refused regardless of configuration, and it stays
+  inert without a docker socket the stock stack does not mount
+
+New settings arrive with each release; `infra/scripts/sync-env.sh` copies the
+ones your `.env` is missing without touching values you have already set.
+
 ## Docker quick start (development)
 ```bash
 cp .env.example .env
@@ -166,19 +209,17 @@ Key `.env` settings (see `.env.example` for the full list):
   [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#turning-the-autonomous-features-on)
 
 ## API overview
-- `GET /api/health`, `GET /metrics`
+**[docs/API.md](docs/API.md) is the full reference** — every route, generated
+from the OpenAPI schema, with its auth requirement. This used to be a second,
+shorter list here; one of them was always going to go stale.
+
+The entry points worth knowing:
+- `GET /api/health`, `GET /metrics`, `GET /` (lists the features this build wired)
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh`
-- `POST /api/project`, `GET /api/project`, `GET /api/project/{id}/chats`
-- `POST /api/files/upload`, `GET /api/files/list`, `GET /api/files/search`, `GET /api/files/{id}/status`
-- `POST /api/artifacts`, `GET /api/artifacts`, `GET/PUT /api/artifacts/{artifact_id}`,
-  `POST /api/artifacts/{artifact_id}/run` (sandbox, admin + `CODE_EXECUTION_ENABLED`)
-- `POST /api/memory`, `GET /api/memory/search`, `GET /api/memory/semantic-search`,
-  `GET /api/memory/graph`, `DELETE /api/memory/{id}`
-- `PATCH/DELETE /api/project/{id}/sessions/{session_id}` — rename/delete a
-  conversation; `GET /api/project/{id}/search?q=` — chat search
 - `POST /api/ws-ticket` — exchange the access token for a single-use WebSocket
-  auth ticket (Redis-backed, 60s TTL, consumed on connect)
-- `WS /ws/chat/{session_id}?ticket=<ticket>` (JWTs are not accepted in the URL)
+  auth ticket (Redis-backed, ~60s TTL, consumed on connect)
+- `WS /ws/chat/{session_id}?ticket=<ticket>` — modes `chat`, `task`, `status`,
+  `goal` (JWTs are not accepted in the URL)
 - `WS /mcp?ticket=<ticket>` — MCP server exposing the tool registry
   (`tools/list` + `tools/call`, same role gates and caller scoping as chat)
 

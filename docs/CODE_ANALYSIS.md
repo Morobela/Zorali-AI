@@ -2,65 +2,103 @@
 
 ## Scope
 
-This review covers the current backend and frontend structure in this repository, with focus on runtime flow, maintainability, security posture, and engineering readiness for the planned phase model.
+This review covers the backend and frontend structure, with focus on runtime
+flow, maintainability, security posture, and engineering readiness. It was
+first written against the pre-capability-map codebase and re-checked against
+the code after U1–U9 shipped; findings that have since been addressed are
+marked, and the ones still open are stated as they now stand.
 
 ## High-level Architecture
 
-- Backend is organized as a FastAPI service with modular routers (`health`, `auth`, `chat`, `project`, `tools`, `files`, `mcp`, `a2a`) mounted in `app.main`.
-- Realtime chat currently flows through a WebSocket endpoint (`/ws/chat/{session_id}`) that multiplexes `chat`, `status`, and `task` modes.
-- Frontend uses React + Vite with page/component/store separation and a socket client for chat streaming.
-- The repository already includes phase-oriented extension points (agents, memory types, workflows), allowing growth without major tree refactors. (Unwired safety- and memory-stub modules that once padded this list were deleted in the truth pass; see `TODO.md`.)
+- Backend is a FastAPI service with modular routers mounted in `app.main`:
+  `health`, `auth`, `chat`, `memory`, `ollama`, `providers`, `project`,
+  `tools`, `files`, `mcp`, `ws_ticket`, `artifacts`, `a2a`, `notifications`,
+  `goals`, `imports`, `webhooks`, `selfcheck`, `resilience`, `skills`,
+  `inference`.
+- Realtime chat flows through `/ws/chat/{session_id}`, multiplexing `chat`,
+  `status`, `task` and `goal` modes, with `stop` as a control frame.
+- A second execution path now exists alongside the request path: the
+  orchestration task queue running continuous, scheduled and on-demand work.
+  See `docs/ARCHITECTURE.md`.
+- Frontend uses React + Vite with page/component/store separation and a socket
+  client for chat streaming.
+- The repository includes phase-oriented extension points (agents, memory
+  types, workflows), allowing growth without major tree refactors. (Unwired
+  safety- and memory-stub modules that once padded this list were deleted in
+  the truth pass; see `TODO.md`.)
 
 ## Strengths
 
 1. **Clear separation of concerns**
-   - API routers, cognition/memory/tooling modules are split cleanly and are easy to evolve independently.
+   - API routers, cognition/memory/tooling modules are split cleanly and are
+     easy to evolve independently.
 2. **Practical local-first stack**
-   - FastAPI + WebSocket + Ollama pattern is lightweight for local deployment and experimentation.
-3. **Phase-driven scaffolding is consistent**
-   - The structure aligns with the documented 4-phase roadmap and prevents architectural churn.
-4. **Good operational starting point**
-   - Presence of Docker, nginx, Prometheus config, DB migration scaffolding, and tests indicates strong baseline engineering hygiene.
+   - FastAPI + WebSocket + Ollama is lightweight for local deployment.
+3. **Enforced caller scoping**
+   - `db/repositories.py` requires an explicit caller on every call — a user id
+     or a deliberate `SYSTEM` marker. This became load-bearing once background
+     tasks started writing rows no user asked for.
+4. **Good operational baseline**
+   - Docker, nginx, Prometheus config, Alembic migrations, and CI that runs the
+     suite against real Postgres and Redis.
 
 ## Risks and Gaps
 
-1. **WebSocket protocol contract is implicit**
-   - `chat.py` uses mode-specific payload shapes without a typed schema/version marker.
+1. **WebSocket protocol contract is implicit** — *still open*
+   - `chat.py` dispatches on `mode` without a typed schema or version marker,
+     and `goal` mode added `goal_update` frames to the same untyped surface.
    - Risk: frontend/backend drift as modes evolve.
 
-2. **Error handling and observability are minimal in chat loop**
-   - Only disconnect is explicitly handled; unexpected exceptions are not mapped to structured error events.
-   - Risk: dropped sessions with weak debuggability.
+2. **Error handling in the chat loop** — *partly addressed*
+   - Explicit `{"type": "error", "content": ...}` frames now cover empty
+     messages, disabled goal mode and goal failure.
+   - Still missing: a machine-readable `code`, and a single wrapper mapping
+     unexpected exceptions rather than per-site handling.
 
-3. **Safety and approval controls may not be uniformly enforced yet**
-   - Enforcement lives in the tool registry (role gates, `approval_required`, audit log); the standalone safety stubs were unwired and have been deleted. Enforcement boundaries (where every dangerous action requires approval) should still be validated end-to-end.
+3. **Safety gating is registry-only** — *unchanged by design, tracked*
+   - Enforcement lives in the tool registry (role gates, `approval_required`,
+     audit log). The standalone safety stubs were unwired and deleted rather
+     than left to imply coverage they never had. Reintroducing them properly,
+     inside the registry's execution path, is in `TODO.md`.
 
-4. **Trust metadata is currently static in chat completion**
-   - `trust_score` is hardcoded (`0.82`) instead of being computed from model/tool/runtime signals.
-   - Risk: false confidence and weak audit semantics.
+4. **`backend/app/zorali.py` is dead code** — *corrected finding*
+   - An earlier version of this report described a hardcoded `trust_score` as
+     if it were in the live chat path. It is not: `zorali.py` defines a
+     `ZoraliResponse` dataclass with `trust_score=0.8` and a `respond()` that
+     echoes its input, and nothing in `backend/app` or `tests` imports it.
+   - The real issue is the module's existence, not its scoring. It is the same
+     category the truth pass deleted; it should follow.
 
-5. **Potential CORS/environment drift**
-   - CORS allows configured frontend plus explicit localhost variants.
-   - Risk: confusion across staging/prod if environment-driven origin policy is not centralized.
+5. **Potential CORS/environment drift** — *still open*
+   - `allow_origins` is `[frontend_url, localhost:5173, 127.0.0.1:5173]` — the
+     localhost entries are unconditional, including in production.
 
 ## Recommended Next Steps (Priority Order)
 
-1. **Define a versioned chat message schema**
-   - Introduce Pydantic models for inbound/outbound WS frames (`type`, `mode`, `request_id`, `schema_version`, payload).
-   - Document the contract in `docs/API.md`.
+1. **Define a versioned chat message schema** — *not started*
+   - Pydantic models for inbound/outbound WS frames (`type`, `mode`,
+     `request_id`, `schema_version`, payload), documented in `docs/API.md`.
+   - More valuable now than when first written: `goal_update` frames added a
+     second producer to the same untyped protocol.
 
-2. **Add robust WS error and telemetry envelope**
-   - Wrap chat loop internals with structured exception mapping to `{"type":"error","code":...,"message":...}`.
-   - Emit telemetry spans/metrics for: token streaming latency, model errors, status/task mode execution time.
+2. **Finish the WS error envelope** — *partly done*
+   - Add a `code` field and one exception-mapping wrapper around the loop.
 
-3. **Implement dynamic trust scoring hooks**
-   - Replace static score with computed score derived from model certainty proxies, tool usage, policy checks, and recovery triggers.
+3. **Delete `backend/app/zorali.py`** — *new*
+   - Unreferenced echo stub. Removing it also removes finding 4.
 
-4. **Centralize and test safety gates for tool/file actions**
-   - Add explicit preflight policy checks and auditable decision logs in one chokepoint before mutating operations.
+4. **Make the localhost CORS origins conditional on `APP_ENV`** — *new*
+   - They are development affordances that currently ship to production.
 
-5. **Strengthen test coverage around WS behaviors**
-   - Add tests for empty message path, malformed mode payloads, task/status mode response shape, and stream completion semantics.
+5. **Extend the parity checker beyond one document** — *new*
+   - The nightly self-check audits `FEATURE_PARITY.md` only. Every stale claim
+     found in the July 2026 docs sweep lived in a file the checker never reads
+     (`ARCHITECTURE.md`, the governance docs). Pointing it at those would have
+     caught them.
+
+6. **Strengthen test coverage around WS behaviours** — *partly done*
+   - Goal mode, resume-after-restart, budget pause and parallel steps are
+     covered. Malformed-mode payloads and stream-completion semantics are not.
 
 ## Suggested Quality Metrics to Track
 
@@ -68,8 +106,17 @@ This review covers the current backend and frontend structure in this repository
 - P50/P95 end-to-end chat latency
 - Token streaming start delay and throughput
 - Tool-call approval deny/allow rates
-- Trust score distribution and post-hoc incident correlation
+- Goal completion rate, and spend per completed goal
+- Notification volume per day (a proactive channel fails by being ignored)
 
 ## Summary
 
-The codebase is well-structured for its stated roadmap and already demonstrates thoughtful modularization. The biggest near-term wins are to formalize the websocket contract, improve runtime observability/error handling, and convert trust/safety pathways from scaffolded behavior to measurable enforcement.
+The structure held up through the capability-map work: goals, the reality
+engine and the resilience routines slotted into existing extension points
+without a tree refactor, and the repository layer's required caller context
+turned out to be the right call once background tasks began writing rows.
+
+The open items are now narrower than the original report's. The WebSocket
+contract is the one piece of real debt — it has gained a second frame producer
+while staying untyped. The rest are small: one dead module, one CORS default,
+and a self-check that audits a single document when it could audit all of them.
