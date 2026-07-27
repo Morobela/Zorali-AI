@@ -80,8 +80,10 @@ def test_normalize_plan_falls_back_to_single_step():
     """An unusable planner reply must still leave the goal executable."""
     for parsed in (None, {}, {"tasks": []}, {"tasks": [{"title": "", "steps": []}]}):
         plan = normalize_plan(parsed, "my objective")
+        # The fallback carries the whole objective, so it is labelled
+        # synthesis — never routed to the cheapest model by accident.
         assert plan == [{"title": "my objective", "steps": [
-            {"instruction": "my objective", "depends_on": []},
+            {"instruction": "my objective", "kind": "synthesis", "depends_on": []},
         ]}]
 
 

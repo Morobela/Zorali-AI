@@ -90,6 +90,23 @@ describe('GoalChecklist', () => {
     expect(onResume).toHaveBeenLastCalledWith('g1', 2.5)
   })
 
+  it('shows the model a step ran on, with its kind when it has one', () => {
+    const routed = {
+      ...GOAL,
+      tasks: [{
+        ...GOAL.tasks[0],
+        steps: [
+          { id: 's1', idx: 0, instruction: 'bucket the feedback', status: 'completed', result: '', error: '', kind: 'classification', model: 'llama3.2:1b' },
+          { id: 's2', idx: 1, instruction: 'write the brief', status: 'pending', result: '', error: '', kind: 'general', model: 'gpt-4o' },
+        ],
+      }],
+    }
+    render(<GoalChecklist goal={routed} />)
+    expect(screen.getByText('classification · llama3.2:1b')).toBeTruthy()
+    // A "general" kind adds nothing worth reading.
+    expect(screen.getByText('gpt-4o')).toBeTruthy()
+  })
+
   it('hides budget chrome for an uncapped goal that has spent nothing', () => {
     render(<GoalChecklist goal={GOAL} />)
     expect(screen.queryByText(/budget/)).toBeNull()

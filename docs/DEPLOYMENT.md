@@ -58,6 +58,28 @@ The `vector` extension must exist in the target database; the dump includes
 its `CREATE EXTENSION`, which requires the restoring role to be a superuser
 on that database (the default `zorali` role in the compose stack is).
 
+## Model routing for goal steps
+
+A plan is not homogeneous work. `STEP_MODEL_POLICY` routes each step by the
+kind the planner gave it, so mechanical steps can run on a small local model
+while synthesis gets the strong one:
+
+```bash
+STEP_MODEL_POLICY="classification=llama3.2:1b,extraction=llama3.2:1b,synthesis=gpt-4o"
+```
+
+Kinds are `classification`, `extraction`, `research`, `synthesis`, `code` and
+`general`; anything else the planner invents is treated as `general` rather
+than routed somewhere unintended. Unlisted kinds use the default model, and an
+empty policy (the default) keeps every step on the default model exactly as
+before.
+
+Precedence, strongest first: a model passed into the run, then the model the
+goal was started with — a user who picked a model in the UI meant it, and the
+policy never overrides that — then the policy, then the provider default. Each
+step records what it actually ran on, so a goal's spend can be explained per
+step rather than guessed at.
+
 ## Recovery actions
 
 One recovery action exists — restarting a compose service — and it is **off

@@ -247,6 +247,7 @@ textarea { resize: vertical; }
   word-break: break-word;
 }
 .goal-step-result { color: var(--zorali-muted); }
+.goal-step-model { font-size: 10px; color: var(--zorali-muted); margin-top: 2px; }
 .goal-step-error { color: #c02c39; }
 .goal-error { margin-top: 8px; }
 

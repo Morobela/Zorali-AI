@@ -350,6 +350,13 @@ class TaskStep(Base):
     owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     idx: Mapped[int] = mapped_column(Integer, nullable=False)
     instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    # What sort of work this is, as labelled by the planner. Mechanical kinds
+    # can be routed to a smaller model (STEP_MODEL_POLICY); ``model`` records
+    # what the step actually ran on, so a goal's spend can be explained.
+    kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="general", server_default="general"
+    )
+    model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     depends_on: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending", index=True
