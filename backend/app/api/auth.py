@@ -10,13 +10,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import create_access_token, create_refresh_token, decode_refresh_token
-from app.core.config import settings
+from app.core.config import is_dev_env
 from app.db.models import User
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/auth")
 
-_DEV_ENVS = {"local", "dev", "development", "test"}
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -108,7 +107,7 @@ async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/demo-login")
 async def demo_login(db: AsyncSession = Depends(get_db)):
-    if settings.app_env not in _DEV_ENVS:
+    if not is_dev_env():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     # Provision the demo account row so owner-scoped resources (projects have
     # a FK to users) can be created with this identity.

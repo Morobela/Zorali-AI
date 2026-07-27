@@ -109,9 +109,11 @@ Zorali also acts without being asked. These are on in the shipped
   turn a CI failure into a diagnosis goal whose notification names the failing
   test. Read-only by construction — nothing on that path can write to a repository
 - **Nightly self-check** (propose-only): runs the backend suite, ruff, and a
-  checker that verifies `docs/FEATURE_PARITY.md`'s own claims against the
-  codebase, then files one deduped GitHub issue per finding. **There is no code
-  to open a pull request or merge one** — merge authority is human by construction
+  checker that verifies the documentation against the codebase — parity
+  claims, plus broken file/route/setting references and stale "this is not
+  wired" notes across twelve documents — then files one deduped GitHub issue
+  per finding. **There is no code to open a pull request or merge one** — merge
+  authority is human by construction
 - **Nightly backups**: verified `pg_dump` with keep-last-N rotation and a
   manifest, a restore path documented in `docs/DEPLOYMENT.md` and exercised by
   the test suite. A failed backup notifies; a successful one is deliberately silent

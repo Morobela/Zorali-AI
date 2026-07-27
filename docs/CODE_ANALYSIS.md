@@ -61,17 +61,18 @@ marked, and the ones still open are stated as they now stand.
      than left to imply coverage they never had. Reintroducing them properly,
      inside the registry's execution path, is in `TODO.md`.
 
-4. **`backend/app/zorali.py` is dead code** — *corrected finding*
+4. **A dead echo-stub module** — *resolved*
    - An earlier version of this report described a hardcoded `trust_score` as
-     if it were in the live chat path. It is not: `zorali.py` defines a
-     `ZoraliResponse` dataclass with `trust_score=0.8` and a `respond()` that
-     echoes its input, and nothing in `backend/app` or `tests` imports it.
-   - The real issue is the module's existence, not its scoring. It is the same
-     category the truth pass deleted; it should follow.
+     if it were in the live chat path. It was not: the module defined a
+     response dataclass and a `respond()` that echoed its input, and nothing
+     imported it. The real issue was the module's existence, not its scoring.
+   - Deleted, as the truth pass deleted its siblings.
 
-5. **Potential CORS/environment drift** — *still open*
-   - `allow_origins` is `[frontend_url, localhost:5173, 127.0.0.1:5173]` — the
-     localhost entries are unconditional, including in production.
+5. **CORS/environment drift** — *resolved*
+   - The Vite dev-server origins were unconditional, so a production
+     deployment allowed `http://localhost:5173` to make credentialed requests.
+     Both they and the demo-login route now gate on `core.config.is_dev_env`,
+     one definition rather than two.
 
 ## Recommended Next Steps (Priority Order)
 
@@ -84,19 +85,18 @@ marked, and the ones still open are stated as they now stand.
 2. **Finish the WS error envelope** — *partly done*
    - Add a `code` field and one exception-mapping wrapper around the loop.
 
-3. **Delete `backend/app/zorali.py`** — *new*
-   - Unreferenced echo stub. Removing it also removes finding 4.
+3. **Verify claims about behaviour, not just references** — *open, and hard*
+   - The nightly self-check now audits twelve documents for broken
+     file/route/setting references and for stale absence claims, with CI
+     enforcing the same check. That covers reference rot and one narrow class
+     of false claim.
+   - It does not cover the rest. Of the three stale claims in the July 2026
+     sweep, only `QueuedTask.max_cost_usd` named something resolvable; the
+     other two were wrong about behaviour in sentences naming nothing. The
+     practical mitigation is editorial rather than mechanical: write
+     load-bearing claims so they cite a setting, route or module.
 
-4. **Make the localhost CORS origins conditional on `APP_ENV`** — *new*
-   - They are development affordances that currently ship to production.
-
-5. **Extend the parity checker beyond one document** — *new*
-   - The nightly self-check audits `FEATURE_PARITY.md` only. Every stale claim
-     found in the July 2026 docs sweep lived in a file the checker never reads
-     (`ARCHITECTURE.md`, the governance docs). Pointing it at those would have
-     caught them.
-
-6. **Strengthen test coverage around WS behaviours** — *partly done*
+4. **Strengthen test coverage around WS behaviours** — *partly done*
    - Goal mode, resume-after-restart, budget pause and parallel steps are
      covered. Malformed-mode payloads and stream-completion semantics are not.
 
@@ -116,7 +116,12 @@ engine and the resilience routines slotted into existing extension points
 without a tree refactor, and the repository layer's required caller context
 turned out to be the right call once background tasks began writing rows.
 
-The open items are now narrower than the original report's. The WebSocket
-contract is the one piece of real debt — it has gained a second frame producer
-while staying untyped. The rest are small: one dead module, one CORS default,
-and a self-check that audits a single document when it could audit all of them.
+The open items are now narrower than the original report's. The dead module is
+gone, the CORS origins are gated, and the self-check audits the documentation
+rather than one document of it. The WebSocket contract is what remains: the one
+piece of real debt, having gained a second frame producer while staying untyped.
+
+The harder residue is that a checker can verify references but not sentences.
+Two of the three stale claims found in July 2026 named nothing resolvable, and
+no amount of tooling reads prose. That is an editorial discipline — make
+load-bearing claims cite something — rather than a backlog item.

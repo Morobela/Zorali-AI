@@ -100,7 +100,7 @@ def test_ws_chat_rejects_legacy_query_jwt():
 
 def test_demo_login_available_in_local_env(monkeypatch):
     """demo-login must return a token when APP_ENV is local (the default)."""
-    monkeypatch.setattr("app.api.auth.settings.app_env", "local")
+    monkeypatch.setattr("app.core.config.settings.app_env", "local")
     client = TestClient(app)
     resp = client.post("/api/auth/demo-login")
     assert resp.status_code == 200
@@ -109,7 +109,7 @@ def test_demo_login_available_in_local_env(monkeypatch):
 
 def test_demo_login_blocked_in_production(monkeypatch):
     """demo-login must return 404 when APP_ENV is production."""
-    monkeypatch.setattr("app.api.auth.settings.app_env", "production")
+    monkeypatch.setattr("app.core.config.settings.app_env", "production")
     client = TestClient(app, raise_server_exceptions=False)
     resp = client.post("/api/auth/demo-login")
     assert resp.status_code == 404

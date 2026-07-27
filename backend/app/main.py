@@ -25,7 +25,7 @@ from app.api.notifications import router as notifications_router
 from app.api.skills import router as skills_router
 from app.api.inference_stats import router as inference_router
 from app.a2a.endpoint import router as a2a_router
-from app.core.config import settings
+from app.core.config import cors_origins, settings
 from app.core.rate_limiter import limiter
 from app.core.scheduling import seconds_until_next_run as _seconds_until
 from app.db.repositories import repo
@@ -143,7 +143,9 @@ app = FastAPI(title="Zorali", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:5173", "http://127.0.0.1:5173"],
+    # Development origins are gated on the same definition of "development"
+    # that hides the demo-login route — see core.config.cors_origins.
+    allow_origins=cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
