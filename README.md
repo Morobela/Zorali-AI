@@ -157,7 +157,13 @@ Key `.env` settings (see `.env.example` for the full list):
 - `AUTO_TITLES_ENABLED` — one-shot LLM conversation titles after the first reply (default true)
 - `MAX_UPLOAD_MB` — upload size ceiling for `/api/files/upload` (default 25)
 - `WEB_SEARCH_ENABLED`, `TAVILY_API_KEY`, `DEEP_RESEARCH_MAX_PAGES` — deep research
-- `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off by default)
+- `CODE_EXECUTION_ENABLED`, `CODE_EXECUTION_TIMEOUT_SECONDS` — sandboxed code execution (off in code *and* in `.env.example`)
+- The autonomy block (`REALITY_SCAN_ENABLED`, `GOAL_ENGINE_ENABLED`,
+  `GOAL_MAX_COST_USD`, `STEP_MODEL_POLICY`, `SELF_IMPROVEMENT_ENABLED`,
+  `BACKUP_ENABLED`, `RECOVERY_ACTIONS_ENABLED`, `GITHUB_*`) — the things that
+  act without being asked. `.env.example` enables everything that is safe and
+  self-contained; what still needs a secret from you, and why, is in
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#turning-the-autonomous-features-on)
 
 ## API overview
 - `GET /api/health`, `GET /metrics`

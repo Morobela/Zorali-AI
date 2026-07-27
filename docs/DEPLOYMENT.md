@@ -2,6 +2,54 @@
 
 Run `docker compose up --build`. For GPU, use `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build`.
 
+## Turning the autonomous features on
+
+The shipped `.env.example` enables everything that is safe and self-contained.
+Copying it (`cp .env.example .env`) gives you a deployment where Zorali scans
+its own infrastructure, notifies you, runs durable goals under a spend cap,
+routes mechanical steps to a small local model, backs itself up nightly, and
+audits its own documentation. **An existing `.env` does not gain these
+automatically** — diff it against `.env.example` and copy the new block over.
+
+Three things need something only you can provide:
+
+| Feature | Works out of the box? | What it needs from you |
+|---|---|---|
+| Reality scan, goals, budgets, model routing, backups, nightly self-check | yes | nothing |
+| Self-check **filing issues** | reports in-app only | `GITHUB_TOKEN` (fine-grained PAT, Issues:write) |
+| GitHub event inbox (U5) | refuses everything (503) | `GITHUB_WEBHOOK_SECRET` here *and* in the repo's webhook settings |
+| Recovery restart (U9) | reports "docker is not available" | a docker socket mounted into the backend — see below |
+| Sandboxed code execution | off, deliberately | `CODE_EXECUTION_ENABLED=true`, only on a trusted single-admin host |
+
+### Letting recovery actually restart a service
+
+`RECOVERY_ACTIONS_ENABLED=true` is set, but the backend container has no
+docker socket, so an attempt degrades to "docker is not available in this
+environment" — recorded on the outage notification rather than swallowed. To
+let it act, mount the socket into the backend service:
+
+```yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # root-equivalent on the host
+```
+
+That grant is root-equivalent control of the host machine, which is why it is
+not in the stock compose stack. The bounds still hold — allowlist,
+`postgres`/`backend` refused, one restart per cooldown, every attempt audited
+— but decide it deliberately.
+
+### Verifying
+
+```bash
+curl -s localhost:8000/ | jq '.features'          # what this build has wired
+curl -sH "Authorization: Bearer $TOKEN" localhost:8000/api/self-check   # nightly runs
+curl -sH "Authorization: Bearer $TOKEN" localhost:8000/api/backups      # dumps + manifest
+curl -sH "Authorization: Bearer $TOKEN" localhost:8000/api/notifications
+```
+
+To turn any of it back off, set the flag to `false` and restart the backend;
+nothing needs unwinding.
+
 ## Backups
 
 A nightly `pg_dump` runs at `BACKUP_HOUR_UTC` (default 02:00 UTC) and keeps
@@ -82,15 +130,17 @@ step rather than guessed at.
 
 ## Recovery actions
 
-One recovery action exists — restarting a compose service — and it is **off
-by default**. Detection (the reality scan) and alerting (notifications) came
-first and should be trusted before anything is allowed to act on them.
+One recovery action exists — restarting a compose service. The code default is
+**off**; the shipped `.env.example` turns it on, and even then it cannot act
+without a docker socket the stock compose stack does not mount (above).
+Detection (the reality scan) and alerting (notifications) came first and should
+be trusted before anything is allowed to act on them.
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `RECOVERY_ACTIONS_ENABLED` | `false` | Alert-only until switched on |
-| `RECOVERY_RESTART_SERVICES` | `ollama` | Allowlist of restartable services |
-| `RECOVERY_COOLDOWN_MINUTES` | `30` | Minimum gap between attempts per service |
+| Setting | Code default | `.env.example` | Meaning |
+|---|---|---|---|
+| `RECOVERY_ACTIONS_ENABLED` | `false` | `true` | Alert-only until switched on |
+| `RECOVERY_RESTART_SERVICES` | `ollama` | `ollama` | Allowlist of restartable services |
+| `RECOVERY_COOLDOWN_MINUTES` | `30` | `30` | Minimum gap between attempts per service |
 
 `postgres` and `backend` are refused even if listed: restarting the database
 this process is connected to, or the process running the code, is not
