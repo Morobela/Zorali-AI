@@ -45,15 +45,23 @@ against the code in the Phase-6 sweep.
       mode added a second frame producer (`goal_update`) to that untyped
       surface. The oldest open item in `docs/CODE_ANALYSIS.md` and now the
       largest.
-- [ ] **Delete `backend/app/zorali.py`.** An unreferenced echo stub — nothing in
-      `backend/app` or `tests` imports it. Same category as the modules removed
-      in the truth pass; it was missed because no doc pointed at it honestly.
-- [ ] **Make the localhost CORS origins conditional on `APP_ENV`.**
-      `allow_origins` includes `localhost:5173` and `127.0.0.1:5173`
-      unconditionally, including in production.
-- [ ] **Point the parity checker at more than one document.** The nightly
-      self-check audits `FEATURE_PARITY.md` only. Every stale claim found in the
-      docs sweep lived somewhere it never reads — `ARCHITECTURE.md` asserting a
-      vLLM backend that does not exist, `governance/OWASP_LLM_MAPPING.md` still
-      calling cost budgets unenforced. Extending it to the other docs would have
-      caught all of them.
+- [x] ~~Delete the unreferenced echo stub in `backend/app`.~~ Done.
+- [x] ~~Make the localhost CORS origins conditional on `APP_ENV`.~~ Done — both
+      it and the demo-login route now gate on `core.config.is_dev_env`, so the
+      two cannot drift.
+- [x] ~~Point the parity checker at more than one document.~~ Done — the nightly
+      self-check now audits twelve documents for broken file/route/setting
+      references and for stale absence claims, and CI enforces the same check
+      so a broken reference fails the PR rather than waiting for 03:00 UTC.
+
+      **Correcting the note that used to be here:** it claimed extending the
+      checker "would have caught all of" the stale claims in the sweep. It
+      would have caught one. "Ollama/vLLM inference" and "the triple extractor
+      is not yet run on chat turns" name nothing a machine can resolve — they
+      are wrong about behaviour, not about a symbol. A checker cannot read a
+      sentence, and saying otherwise was the same species of overclaim the
+      checker exists to catch.
+- [ ] **Claims about behaviour remain unverifiable.** The gap above is real and
+      open. Narrowing it means writing docs so load-bearing claims name
+      something checkable — a setting, a route, a module — rather than
+      describing behaviour in prose alone.

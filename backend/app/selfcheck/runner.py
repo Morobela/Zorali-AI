@@ -24,13 +24,41 @@ from pathlib import Path
 from app.core.scheduling import seconds_until_next_run
 from app.db.repositories import repo
 from app.selfcheck import github_issues
-from app.selfcheck.parity_checker import app_routes, check_parity_doc, settings_names
+from app.selfcheck.parity_checker import (
+    app_routes,
+    check_absence_claims,
+    check_doc_references,
+    check_parity_doc,
+    settings_names,
+)
 
 _log = logging.getLogger(__name__)
 
 # The repo root: .../backend/app/selfcheck/runner.py → up three.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PARITY_DOC = REPO_ROOT / "docs" / "FEATURE_PARITY.md"
+
+# Documents audited for broken references and stale absence claims. Listed
+# rather than globbed: adding a doc to the nightly run should be a decision.
+#
+# Deliberately absent are the two historical records — docs/audit/ and
+# ULTRON_CAPABILITY_MAP.md sections 2-3 — which describe the repository as it
+# was before the capability-map work and cite modules the truth pass deleted.
+# Checking them would report the past as an error every night.
+AUDITED_DOCS = (
+    "README.md",
+    "TODO.md",
+    "docs/API.md",
+    "docs/ARCHITECTURE.md",
+    "docs/CODE_ANALYSIS.md",
+    "docs/DEPLOYMENT.md",
+    "docs/PHASES.md",
+    "docs/REVIEW_SCORECARD.md",
+    "docs/SECURITY.md",
+    "docs/governance/AI_RISK_REGISTER.md",
+    "docs/governance/OWASP_LLM_MAPPING.md",
+    "docs/governance/SYSTEM_CARD.md",
+)
 
 _LINT_TIMEOUT_S = 180.0
 _TEST_TIMEOUT_S = 1800.0
@@ -40,7 +68,7 @@ _OUTPUT_CHARS = 4000
 
 @dataclass
 class Finding:
-    kind: str      # "parity" | "lint" | "tests"
+    kind: str      # "parity" | "docs" | "lint" | "tests"
     key: str       # stable identity for issue dedupe
     title: str
     detail: str
@@ -115,6 +143,41 @@ def check_parity(doc_path: Path | None = None) -> list[Finding]:
     ]
 
 
+def check_docs(doc_names: tuple[str, ...] | None = None) -> list[Finding]:
+    """Broken references and stale absence claims across the documentation.
+
+    Separate from :func:`check_parity` because it asks a different question.
+    Parity asks "is this shipped claim backed by code"; this asks "does what
+    the docs point at still exist, and does anything they call dead still
+    live". The second question is the one that goes unnoticed, because a
+    reference rots silently when the code it names moves.
+    """
+    routes = app_routes()
+    names = settings_names()
+    findings: list[Finding] = []
+
+    for relative in doc_names or AUDITED_DOCS:
+        doc = REPO_ROOT / relative
+        raw = check_doc_references(
+            doc, repo_root=REPO_ROOT, routes=routes, setting_names=names
+        )
+        raw += check_absence_claims(doc, repo_root=REPO_ROOT, setting_names=names)
+        for f in raw:
+            findings.append(Finding(
+                kind="docs",
+                # Scoped by document: the same missing module cited from two
+                # docs is two fixes, and should be two issues.
+                key=f"docs:{relative}:{f.kind}:{f.reference}",
+                title=f"Nightly self-check: {relative} is out of date",
+                detail=(
+                    f"{f.detail}\n\n"
+                    "This issue was filed automatically by Zorali's nightly self-check; "
+                    "nothing was changed."
+                ),
+            ))
+    return findings
+
+
 async def run_self_check(*, run_tests: bool = True, doc_path: Path | None = None) -> dict:
     """One full self-check pass. Never raises: a failure is recorded, not thrown."""
     record = await repo.create_self_check()
@@ -122,6 +185,10 @@ async def run_self_check(*, run_tests: bool = True, doc_path: Path | None = None
     error = ""
     try:
         findings.extend(check_parity(doc_path))
+        if doc_path is None:
+            # A caller pointing at one parity document is testing that check;
+            # sweeping the real docs then would be surprising.
+            findings.extend(check_docs())
         findings.extend(await check_lint())
         if run_tests:
             findings.extend(await check_tests())
@@ -182,4 +249,7 @@ async def _notify(findings: list[Finding], issues_filed: int) -> None:
 
 # Re-exported: the backup routine (U9) schedules the same way, so the
 # calculation moved to app.core.scheduling.
-__all__ = ["run_self_check", "check_parity", "check_lint", "check_tests", "seconds_until_next_run"]
+__all__ = [
+    "run_self_check", "check_parity", "check_docs", "check_lint", "check_tests",
+    "seconds_until_next_run",
+]

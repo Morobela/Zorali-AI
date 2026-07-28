@@ -13,7 +13,7 @@ these run on their own — an operator should know about them before deploying:
 |---|---|---|---|
 | Reality scan | every 60s | Probe services, read git state and log tails; write `reality_events`; post notifications | Change anything it observes |
 | Durable goals | a user starts one; resumed on boot | Run planned steps through the normal tool loop, spending against a cap | Exceed `GOAL_MAX_COST_USD`, or resume itself once paused |
-| Nightly self-check | 03:00 UTC | Run the test suite and ruff, audit `FEATURE_PARITY.md` claims, open a GitHub issue, notify | Change code, open a pull request, or merge — that code does not exist |
+| Nightly self-check | 03:00 UTC | Run the test suite and ruff, audit the documentation against the code, open a GitHub issue, notify | Change code, open a pull request, or merge — that code does not exist |
 | Nightly backup | 02:00 UTC | `pg_dump` to local disk with rotation; notify on failure | Serve a dump over HTTP |
 | GitHub event inbox | an inbound webhook | Record an event, open a diagnosis goal, notify | Write to any repository; run at all without a configured HMAC secret |
 | Recovery action | a service seen down | Restart one allowlisted compose service | Restart `postgres` or `backend`; act at all without a docker socket the stock stack does not mount |

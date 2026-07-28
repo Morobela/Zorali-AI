@@ -206,3 +206,31 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Environments where development affordances are allowed. Anything not listed
+# here — most importantly "production" — is treated as a real deployment.
+DEV_ENVS = frozenset({"local", "dev", "development", "test"})
+
+
+def is_dev_env() -> bool:
+    """True when this process may enable development-only affordances.
+
+    Used by the demo-login route and the CORS origin list. It lives here so the
+    two cannot drift apart: a new dev-only affordance should gate on the same
+    definition the existing ones use.
+    """
+    return settings.app_env in DEV_ENVS
+
+
+# The Vite dev server. Allowed only in development: combined with
+# allow_credentials=True, an origin here can make authenticated requests to
+# this API, so it has no business being permitted on a real deployment.
+VITE_DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def cors_origins() -> list[str]:
+    """Origins permitted to call this API with credentials."""
+    origins = [settings.frontend_url]
+    if is_dev_env():
+        origins.extend(VITE_DEV_ORIGINS)
+    return origins
