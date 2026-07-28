@@ -22,8 +22,59 @@ and cross-user access returns 404 rather than 403. Roles form a hierarchy
 
 | Endpoint | Notes |
 |---|---|
-| `WS /ws/chat/{session_id}?ticket=` | modes: `chat`, `task`, `status`, `goal`; `stop` as a control frame. JWTs are **not** accepted in the URL |
+| `WS /ws/chat/{session_id}?ticket=` | The chat protocol, below. JWTs are **not** accepted in the URL |
 | `WS /mcp?ticket=` | MCP server over the tool registry (`tools/list`, `tools/call`), same role gates and caller scoping as chat |
+
+### The chat protocol — schema version 1
+
+Declared in `backend/app/api/ws_protocol.py`, which is the authority; this
+section describes it. `tests/backend/test_ws_protocol.py` fails if the two
+disagree, so neither can drift alone.
+
+**Client → server.** One JSON object per message. `mode` selects what happens;
+an unrecognised mode is refused with an `unknown_mode` error rather than
+treated as `chat`. Unknown *fields* are ignored, so a newer client degrades
+instead of failing.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `mode` | `chat` | `chat` · `task` · `goal` · `status` · `stop` |
+| `message` | `""` | The turn's text. Required by `chat`, `task` and `goal` |
+| `request_id` | generated | Correlation id, echoed on every frame the turn produces |
+| `schema_version` | — | The version the client was written against |
+| `project_id` | `default` | Scopes retrieval and history |
+| `model`, `local_first` | provider default, `true` | Model selection for this turn |
+| `tools_enabled` | `true` | Let the model call tools mid-answer |
+| `deep_research` | `false` | Route the turn through the research pipeline |
+| `regenerate`, `edit_last` | `false` | Replace the previous answer / previous exchange |
+| `attachments` | `[]` | Files and images for this turn |
+
+`{"mode": "stop"}` interrupts a streaming answer; `{"type": "stop"}` is the
+older spelling and is still accepted.
+
+**Server → client.** Every frame carries `type`, `schema_version`, and the
+`request_id` of the turn that caused it. These nine types are the whole set —
+the emitter refuses to send anything else:
+
+| `type` | Payload | Sent during |
+|---|---|---|
+| `token` | `content` | a streaming chat answer |
+| `done` | `citations`, `web_citations`, `latency_ms`, `provider`, `fallback_used`, `stopped` | end of a chat turn |
+| `tool_use` | the call the model decided to make | a tool-using turn |
+| `tool_result` | what the tool returned | a tool-using turn |
+| `goal_token` | `content` | a streaming goal step |
+| `goal_update` | the goal checklist state | goal mode |
+| `task_result` | `data.status`, `data.result`, `data.tools_used`, `data.citations` | task mode |
+| `status` | `data` — the project scan | `mode: status` |
+| `error` | `code`, `content` | any failure |
+
+**Error codes** (`error.code`), so a client can branch without parsing prose:
+`invalid_frame`, `unknown_mode`, `empty_message`, `goal_disabled`,
+`goal_failed`, `internal_error`.
+
+An unexpected server-side exception becomes an `internal_error` frame and the
+socket stays open. Before version 1 it closed the connection, and the user saw
+a silent disconnect mid-answer.
 
 ## Projects, chats and files
 
@@ -123,7 +174,3 @@ and cross-user access returns 404 rather than 403. Roles form a hierarchy
 WebSockets authenticate with single-use tickets from `POST /api/ws-ticket`
 (Redis-backed, ~60s TTL, consumed on first connect). JWTs are never accepted in
 WebSocket URLs. See `docs/SECURITY.md`.
-
-**Known gap:** WebSocket frames have no typed schema or version marker. Modes
-are dispatched on a bare `mode` string, and `goal_update` frames were added to
-the same untyped surface — see `docs/CODE_ANALYSIS.md`, recommendation 1.

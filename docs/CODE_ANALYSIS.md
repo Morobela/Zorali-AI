@@ -44,16 +44,22 @@ marked, and the ones still open are stated as they now stand.
 
 ## Risks and Gaps
 
-1. **WebSocket protocol contract is implicit** — *still open*
-   - `chat.py` dispatches on `mode` without a typed schema or version marker,
-     and `goal` mode added `goal_update` frames to the same untyped surface.
-   - Risk: frontend/backend drift as modes evolve.
+1. **WebSocket protocol contract** — *resolved*
+   - `backend/app/api/ws_protocol.py` declares schema version 1: a validated
+     inbound frame, a closed set of nine outbound types, and an emitter that
+     stamps `schema_version` and the turn's `request_id` on everything —
+     including frames built inside the goal engine and the tool loop, which
+     receive it in place of a raw `send_json`.
+   - Drift is now a test failure rather than a surprise: a frame type not in
+     `OUTBOUND_TYPES`, or not documented in `docs/API.md`, fails CI.
 
-2. **Error handling in the chat loop** — *partly addressed*
-   - Explicit `{"type": "error", "content": ...}` frames now cover empty
-     messages, disabled goal mode and goal failure.
-   - Still missing: a machine-readable `code`, and a single wrapper mapping
-     unexpected exceptions rather than per-site handling.
+2. **Error handling in the chat loop** — *resolved*
+   - Error frames carry a machine-readable `code` (`invalid_frame`,
+     `unknown_mode`, `empty_message`, `goal_disabled`, `goal_failed`,
+     `internal_error`) alongside the human `content` the UI renders.
+   - One wrapper around the loop body maps an unexpected exception to an
+     `internal_error` frame and keeps the socket open. Previously it closed
+     the connection and the user saw the answer stop with no explanation.
 
 3. **Safety gating is registry-only** — *unchanged by design, tracked*
    - Enforcement lives in the tool registry (role gates, `approval_required`,
@@ -76,16 +82,7 @@ marked, and the ones still open are stated as they now stand.
 
 ## Recommended Next Steps (Priority Order)
 
-1. **Define a versioned chat message schema** — *not started*
-   - Pydantic models for inbound/outbound WS frames (`type`, `mode`,
-     `request_id`, `schema_version`, payload), documented in `docs/API.md`.
-   - More valuable now than when first written: `goal_update` frames added a
-     second producer to the same untyped protocol.
-
-2. **Finish the WS error envelope** — *partly done*
-   - Add a `code` field and one exception-mapping wrapper around the loop.
-
-3. **Verify claims about behaviour, not just references** — *open, and hard*
+1. **Verify claims about behaviour, not just references** — *open, and hard*
    - The nightly self-check now audits twelve documents for broken
      file/route/setting references and for stale absence claims, with CI
      enforcing the same check. That covers reference rot and one narrow class
@@ -96,9 +93,11 @@ marked, and the ones still open are stated as they now stand.
      practical mitigation is editorial rather than mechanical: write
      load-bearing claims so they cite a setting, route or module.
 
-4. **Strengthen test coverage around WS behaviours** — *partly done*
-   - Goal mode, resume-after-restart, budget pause and parallel steps are
-     covered. Malformed-mode payloads and stream-completion semantics are not.
+2. **Strengthen test coverage around WS behaviours** — *largely done*
+   - Goal mode, resume-after-restart, budget pause and parallel steps were
+     already covered; schema version 1 added malformed frames, unknown modes,
+     and an unexpected server error, each asserted from a real client socket.
+   - Stream-completion semantics under a mid-turn disconnect remain uncovered.
 
 ## Suggested Quality Metrics to Track
 
@@ -116,10 +115,10 @@ engine and the resilience routines slotted into existing extension points
 without a tree refactor, and the repository layer's required caller context
 turned out to be the right call once background tasks began writing rows.
 
-The open items are now narrower than the original report's. The dead module is
-gone, the CORS origins are gated, and the self-check audits the documentation
-rather than one document of it. The WebSocket contract is what remains: the one
-piece of real debt, having gained a second frame producer while staying untyped.
+Every item the original report raised is now closed. The dead module is gone,
+the CORS origins are gated, the self-check audits the documentation rather than
+one document of it, and the WebSocket protocol — the last and largest piece of
+debt — is declared, versioned and enforced by tests on both sides of the wire.
 
 The harder residue is that a checker can verify references but not sentences.
 Two of the three stale claims found in July 2026 named nothing resolvable, and
