@@ -31,7 +31,16 @@ against the code in the Phase-6 sweep.
 - [ ] Self-improvement phase two (capability map U8): propose patches as
       branches + PRs gated on CI. Phase one (nightly checks → issues) shipped;
       merge authority stays human, permanently — auto-merge is never built.
-- [ ] Safety gating (command_guard / prompt_integrity / action_classifier): the unwired stubs were deleted in the truth pass; these remain good ideas to reintroduce properly, wired into the tool registry's execution path.
+- [x] ~~Safety gating (command_guard / prompt_integrity / action_classifier).~~
+      Done, and only one of the three was a real gap. `command_guard` came back
+      as `backend/app/safety/argument_guard.py`, wired into `registry.execute`:
+      the registry judged the caller and the tool but never the arguments, so
+      `file_read` — `requires_role="user"`, advertised to every account by
+      `WS /mcp` — would read the deployment's `.env`. The other two described
+      controls that already exist (UNTRUSTED framing in `api/chat.py`;
+      `requires_role`/`approval_required` in the registry) and were left alone
+      rather than duplicated into something that looks like more security than
+      it is. See `docs/SECURITY.md`.
 - [ ] Artifact side-panel live preview/rendering.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
 - [ ] Retrieval quality metrics in CI (Recall@5, MRR) on the RAG eval corpus.

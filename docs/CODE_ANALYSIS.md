@@ -61,11 +61,16 @@ marked, and the ones still open are stated as they now stand.
      `internal_error` frame and keeps the socket open. Previously it closed
      the connection and the user saw the answer stop with no explanation.
 
-3. **Safety gating is registry-only** — *unchanged by design, tracked*
-   - Enforcement lives in the tool registry (role gates, `approval_required`,
-     audit log). The standalone safety stubs were unwired and deleted rather
-     than left to imply coverage they never had. Reintroducing them properly,
-     inside the registry's execution path, is in `TODO.md`.
+3. **Tool gating ignored the arguments** — *resolved*
+   - Enforcement lived entirely in the tool registry's role gates and
+     `approval_required`, both per-tool constants. Nothing read `inputs`, so
+     `file_read` — `requires_role="user"` and advertised to every account by
+     `WS /mcp` — would return the deployment's `.env`.
+   - `backend/app/safety/argument_guard.py` now runs inside `registry.execute`
+     and refuses credential paths, resolving symlinks so the check cannot be
+     laundered. Revisiting the three deleted stubs, this was the only one of
+     them naming a gap that was real; see `docs/SECURITY.md` for why the other
+     two were deliberately not rebuilt.
 
 4. **A dead echo-stub module** — *resolved*
    - An earlier version of this report described a hardcoded `trust_score` as
