@@ -40,11 +40,15 @@ against the code in the Phase-6 sweep.
       with notifications shipped as U3/U4; custom scans/schedules are next).
 
 ## Engineering debt (from the 2026-07 docs sweep)
-- [ ] **Versioned WebSocket frame schema.** `api/chat.py` still dispatches on a
-      bare `mode` string with no `schema_version` or `request_id`, and `goal`
-      mode added a second frame producer (`goal_update`) to that untyped
-      surface. The oldest open item in `docs/CODE_ANALYSIS.md` and now the
-      largest.
+- [x] ~~Versioned WebSocket frame schema.~~ Done — schema version 1 lives in
+      `backend/app/api/ws_protocol.py` and is documented in `docs/API.md`.
+      Inbound frames are validated (an unknown mode is refused rather than
+      silently run as chat), the nine outbound types are a closed set, and one
+      emitter stamps `schema_version` + `request_id` on every frame, including
+      those built by the goal engine and the tool loop. Error frames carry a
+      machine-readable `code`, and an unexpected exception becomes an
+      `internal_error` frame instead of a dropped socket. Version 1 is
+      deliberately additive, so an older client keeps working.
 - [x] ~~Delete the unreferenced echo stub in `backend/app`.~~ Done.
 - [x] ~~Make the localhost CORS origins conditional on `APP_ENV`.~~ Done — both
       it and the demo-login route now gate on `core.config.is_dev_env`, so the
