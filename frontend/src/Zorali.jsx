@@ -12,6 +12,7 @@ import { apiGet, apiPost, apiPut, apiPatch, apiUpload, apiDelete } from './api/h
 import TopbarPills from './components/TopbarPills.jsx'
 import GoalChecklist from './components/GoalChecklist.jsx'
 import RepoImport from './components/RepoImport.jsx'
+import RoutinesPanel from './components/RoutinesPanel.jsx'
 import { applyGoalToken, applyGoalUpdate, isGoalFinished, replaceGoal } from './state/goalMessages.js'
 
 // ─── Suggestion cards ─────────────────────────────────────────────────────────
@@ -1029,6 +1030,9 @@ export default function Zorali() {
           <button className="conn-btn connected" onClick={() => togglePanel('memory')}>
             ● Memory ({messages.length})
           </button>
+          <button className="conn-btn connected" onClick={() => togglePanel('routines')}>
+            ● Routines
+          </button>
           {Object.entries(connectors).map(([name, active]) => (
             <button
               key={name}
@@ -1171,6 +1175,7 @@ export default function Zorali() {
                 {panel === 'memory' && '🧠 Memory'}
                 {panel === 'deepSearch' && '🔎 Deep Search'}
                 {panel === 'sources' && '📥 Import repository'}
+                {panel === 'routines' && '⏰ Routines'}
               </h3>
               <button className="panel-close" onClick={() => setPanel(null)}>✕</button>
             </div>
@@ -1190,6 +1195,11 @@ export default function Zorali() {
                   onImported={r => showToast(`✓ Imported ${r.imported_files} files from ${r.source}`, 'success')}
                   onError={msg => showToast(`Import failed: ${msg}`, 'error')}
                 />
+              )}
+
+              {/* User-configurable routines */}
+              {panel === 'routines' && (
+                <RoutinesPanel onClose={() => setPanel(null)} />
               )}
 
               {/* Deep Search panel */}

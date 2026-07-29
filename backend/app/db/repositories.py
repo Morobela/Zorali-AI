@@ -37,6 +37,8 @@ from app.db.models import (
     Project,
     RealityEvent,
     RepoImport,
+    Routine,
+    RoutineRun,
     SelfCheck,
     SessionSummary,
     Task,
@@ -244,6 +246,39 @@ def _import_dict(row: RepoImport) -> dict[str, Any]:
         "error": row.error,
         "created_at": _iso(row.created_at),
         "updated_at": _iso(row.updated_at),
+    }
+
+
+def _routine_dict(row: Routine) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "project_id": row.project_id,
+        "name": row.name,
+        "prompt": row.prompt,
+        "schedule_kind": row.schedule_kind,
+        "interval_seconds": row.interval_seconds,
+        "hour_utc": row.hour_utc,
+        "enabled": row.enabled,
+        "max_cost_usd": row.max_cost_usd,
+        "next_run_at": _iso(row.next_run_at),
+        "last_run_at": _iso(row.last_run_at),
+        "last_status": row.last_status,
+        "consecutive_failures": row.consecutive_failures,
+        "disabled_reason": row.disabled_reason,
+        "created_at": _iso(row.created_at),
+    }
+
+
+def _routine_run_dict(row: RoutineRun) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "routine_id": row.routine_id,
+        "status": row.status,
+        "result": row.result,
+        "error": row.error,
+        "cost_usd": row.cost_usd,
+        "started_at": _iso(row.started_at),
+        "finished_at": _iso(row.finished_at),
     }
 
 
@@ -1838,6 +1873,198 @@ class Repository:
             stmt = select(RealityEvent).order_by(RealityEvent.created_at.desc(), RealityEvent.id.desc()).limit(limit)
             rows = (await session.execute(stmt)).scalars().all()
             return [_reality_event_dict(r) for r in rows]
+
+
+    # ── User-configurable routines ──────────────────────────────────────────
+    # Owner-scoped like every other user entity. The one exception is
+    # ``due_routines``, which the ticker calls with SYSTEM because it sweeps
+    # every account's schedules — the runner then acts as each routine's own
+    # owner, so nothing downstream sees an unscoped caller.
+
+    async def create_routine(
+        self,
+        *,
+        owner_id: str,
+        name: str,
+        prompt: str,
+        project_id: str = "default",
+        schedule_kind: str = "interval",
+        interval_seconds: int = 3600,
+        hour_utc: int = 8,
+        max_cost_usd: float = 0.0,
+        next_run_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = Routine(
+                    id=str(uuid4()), owner_id=owner, project_id=project_id,
+                    name=name, prompt=prompt, schedule_kind=schedule_kind,
+                    interval_seconds=interval_seconds, hour_utc=hour_utc,
+                    max_cost_usd=max_cost_usd,
+                    next_run_at=next_run_at or _utc_now(),
+                )
+                session.add(row)
+            return _routine_dict(row)
+
+    async def list_routines(self, *, owner_id: str) -> list[dict[str, Any]]:
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = select(Routine).order_by(Routine.created_at.desc())
+            if owner is not None:
+                stmt = stmt.where(Routine.owner_id == owner)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_routine_dict(r) for r in rows]
+
+    async def get_routine(self, routine_id: str, *, owner_id: Caller) -> dict[str, Any] | None:
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = select(Routine).where(Routine.id == routine_id)
+            if owner is not None:
+                stmt = stmt.where(Routine.owner_id == owner)
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            return _routine_dict(row) if row else None
+
+    async def count_enabled_routines(self, *, owner_id: str) -> int:
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = select(func.count()).select_from(Routine).where(Routine.enabled.is_(True))
+            if owner is not None:
+                stmt = stmt.where(Routine.owner_id == owner)
+            return int((await session.execute(stmt)).scalar_one())
+
+    async def update_routine(
+        self, routine_id: str, *, owner_id: Caller, **fields: Any
+    ) -> dict[str, Any] | None:
+        """Patch a routine. Unknown keys are ignored rather than trusted."""
+        allowed = {
+            "name", "prompt", "project_id", "schedule_kind", "interval_seconds",
+            "hour_utc", "enabled", "max_cost_usd", "next_run_at",
+        }
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(Routine).where(Routine.id == routine_id)
+                if owner is not None:
+                    stmt = stmt.where(Routine.owner_id == owner)
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return None
+                for key, value in fields.items():
+                    if key in allowed and value is not None:
+                        setattr(row, key, value)
+                if fields.get("enabled") is True:
+                    # Re-enabling clears the strike count, otherwise a routine
+                    # fixed by its owner would disable itself again at once.
+                    row.consecutive_failures = 0
+                    row.disabled_reason = ""
+            return _routine_dict(row)
+
+    async def delete_routine(self, routine_id: str, *, owner_id: Caller) -> bool:
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                stmt = select(Routine).where(Routine.id == routine_id)
+                if owner is not None:
+                    stmt = stmt.where(Routine.owner_id == owner)
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return False
+                await session.delete(row)
+            return True
+
+    async def due_routines(self, *, owner_id: Caller, now: datetime | None = None,
+                           limit: int = 20) -> list[dict[str, Any]]:
+        """Enabled routines whose next_run_at has passed."""
+        resolve_owner_filter(owner_id)  # SYSTEM for the ticker; validates the caller
+        moment = now or _utc_now()
+        async with SessionLocal() as session:
+            stmt = (
+                select(Routine)
+                .where(Routine.enabled.is_(True), Routine.next_run_at <= moment)
+                .order_by(Routine.next_run_at)
+                .limit(limit)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_routine_dict(r) | {"owner_id": r.owner_id} for r in rows]
+
+    async def start_routine_run(self, routine_id: str, *, owner_id: str) -> dict[str, Any]:
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                row = RoutineRun(id=str(uuid4()), routine_id=routine_id, owner_id=owner)
+                session.add(row)
+            return _routine_run_dict(row)
+
+    async def finish_routine_run(
+        self,
+        run_id: str,
+        routine_id: str,
+        *,
+        owner_id: str,
+        status: str,
+        result: str = "",
+        error: str = "",
+        cost_usd: float = 0.0,
+        next_run_at: datetime | None = None,
+        failure_limit: int = 3,
+    ) -> dict[str, Any] | None:
+        """Record the outcome and advance the schedule.
+
+        A failing routine accumulates strikes and disables itself at
+        ``failure_limit`` — one that fails every hour and notifies every hour
+        trains its owner to ignore the channel that also carries real work.
+        """
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            async with session.begin():
+                run = (await session.execute(
+                    select(RoutineRun).where(RoutineRun.id == run_id)
+                )).scalar_one_or_none()
+                if run is not None:
+                    run.status = status
+                    run.result = result
+                    run.error = error
+                    run.cost_usd = cost_usd
+                    run.finished_at = _utc_now()
+
+                stmt = select(Routine).where(Routine.id == routine_id)
+                if owner is not None:
+                    stmt = stmt.where(Routine.owner_id == owner)
+                routine = (await session.execute(stmt)).scalar_one_or_none()
+                if routine is None:
+                    return None
+                routine.last_run_at = _utc_now()
+                routine.last_status = status
+                if status == "completed":
+                    routine.consecutive_failures = 0
+                else:
+                    routine.consecutive_failures += 1
+                    if routine.consecutive_failures >= failure_limit:
+                        routine.enabled = False
+                        routine.disabled_reason = (
+                            f"disabled after {routine.consecutive_failures} consecutive "
+                            f"failures; last error: {error[:200]}"
+                        )
+                if next_run_at is not None:
+                    routine.next_run_at = next_run_at
+                return _routine_dict(routine)
+
+    async def list_routine_runs(
+        self, routine_id: str, *, owner_id: Caller, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        owner = resolve_owner_filter(owner_id)
+        async with SessionLocal() as session:
+            stmt = (
+                select(RoutineRun)
+                .where(RoutineRun.routine_id == routine_id)
+                .order_by(RoutineRun.started_at.desc())
+                .limit(limit)
+            )
+            if owner is not None:
+                stmt = stmt.where(RoutineRun.owner_id == owner)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_routine_run_dict(r) for r in rows]
 
 
 repo = Repository()

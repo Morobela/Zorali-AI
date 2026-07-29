@@ -16,6 +16,7 @@ these run on their own — an operator should know about them before deploying:
 | Nightly self-check | 03:00 UTC | Run the test suite and ruff, audit the documentation against the code, open a GitHub issue, notify | Change code, open a pull request, or merge — that code does not exist |
 | Nightly backup | 02:00 UTC | `pg_dump` to local disk with rotation; notify on failure | Serve a dump over HTTP |
 | GitHub event inbox | an inbound webhook | Record an event, open a diagnosis goal, notify | Write to any repository; run at all without a configured HMAC secret |
+| User routines | a schedule its owner set | Run that owner's prompt through the normal tool loop and notify them | Run more often than `ROUTINE_MIN_INTERVAL_SECONDS`, exceed its per-run ceiling, use a tool its owner could not, or keep running after it starts failing |
 | Recovery action | a service seen down | Restart one allowlisted compose service | Restart `postgres` or `backend`; act at all without a docker socket the stock stack does not mount |
 
 Sandboxed code execution is off in code **and** in the shipped template. It runs

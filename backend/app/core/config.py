@@ -127,6 +127,26 @@ class Settings(BaseSettings):
     # A dirty working tree older than this many hours triggers a notification.
     dirty_age_threshold_hours: float = Field(default=24.0, ge=0.1)
 
+    # User-configurable routines: a schedule plus a prompt, defined by an
+    # account rather than compiled into the deployment. Every bound below
+    # exists because a thing that runs unattended and spends money is a money
+    # pump without one.
+    routines_enabled: bool = True
+    # How often the ticker looks for due routines. Not how often a routine
+    # runs — that is the routine's own schedule.
+    routine_tick_seconds: float = Field(default=30.0, ge=5.0)
+    # Floor on a routine's interval. Without it, "every 10 seconds" is a
+    # legal way to bill a deployment continuously.
+    routine_min_interval_seconds: int = Field(default=300, ge=60)
+    # How many enabled routines one account may have.
+    routine_max_per_user: int = Field(default=10, ge=1, le=100)
+    # Ceiling on a single run, used when a routine does not set its own.
+    routine_max_cost_usd: float = Field(default=0.25, gt=0.0)
+    # Consecutive failures after which a routine disables itself. A routine
+    # that fails every hour and notifies every hour is worse than one that
+    # stops and says why.
+    routine_failure_limit: int = Field(default=3, ge=1)
+
     # How many retrieved chunks reach the prompt — both for the always-on
     # retrieval on tools-off turns and for the document_search tool.
     rag_top_k: int = Field(default=3, ge=1, le=50)

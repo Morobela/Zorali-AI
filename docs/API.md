@@ -131,6 +131,22 @@ a silent disconnect mid-answer.
 | GET | `/api/notifications/unread-count` | |
 | POST | `/api/notifications/{id}/read`, `/api/notifications/read-all` | |
 
+## Routines
+
+User-defined schedules. The bounds are enforced here, at the edge, so a routine
+that exists is already a legal one.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET, POST | `/api/routines` | 422 below `ROUTINE_MIN_INTERVAL_SECONDS`; 409 past `ROUTINE_MAX_PER_USER` enabled |
+| GET, PATCH, DELETE | `/api/routines/{routine_id}` | re-enabling clears the strike count |
+| POST | `/api/routines/{routine_id}/run` | run now, without waiting for the schedule |
+| GET | `/api/routines/{routine_id}/runs` | run history: status, result, cost, error |
+
+`schedule_kind` is `interval` (every N seconds) or `daily` (at `hour_utc`).
+Cron is deliberately not supported — it is a parser and a footgun, and these
+two cover what the feature is for.
+
 ## Inbound events (U5)
 
 | Method | Path | Notes |
