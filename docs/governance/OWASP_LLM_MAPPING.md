@@ -4,7 +4,7 @@
 |---|---|
 | LLM01 Prompt injection | UNTRUSTED evidence blocks for file/web content in the chat prompt (`backend/app/api/chat.py`). Inbound webhook payloads reach a diagnosis prompt under the same framing, and that path has no write-capable tool |
 | LLM02 Insecure output handling | The frontend never renders raw HTML from the model (react-markdown without `rehype-raw`, no `dangerouslySetInnerHTML`) |
-| LLM06 Excessive agency | Registry role gates, `approval_required`, audit log; sandbox behind env opt-in + admin role. Autonomous work is bounded separately — see below |
+| LLM06 Excessive agency | Registry role gates, `approval_required`, audit log; sandbox behind env opt-in + admin role. Arguments are gated as well as identity: path-taking tools refuse credential files (`backend/app/safety/argument_guard.py`), so a tool a user may legitimately call cannot be pointed at the deployment's secrets. Autonomous work is bounded separately — see below |
 | LLM10 Unbounded consumption | HTTP rate limiting, an upload size ceiling (`MAX_UPLOAD_MB`), and per-goal cost budgets enforced in the goal engine and the task queue: every provider call is priced and attributed to the step that made it, `QueuedTask.max_cost_usd` short-circuits a task whose remaining budget is gone (`budget_exhausted`), and a goal pauses itself at `GOAL_BUDGET_WARN_RATIO` of `GOAL_MAX_COST_USD` rather than spending to the ceiling (capability map U7) |
 
 ## Autonomy-specific risks

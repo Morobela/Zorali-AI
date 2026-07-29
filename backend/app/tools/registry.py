@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import ast
 import operator as op
 from app.core.caller import Caller
+from app.safety.argument_guard import check_arguments
 from app.tools.file_tools import read_file, write_file
 from app.core.audit import audit, AuditEvent
 from app.core.hooks import global_hooks
@@ -64,6 +65,15 @@ class ToolRegistry:
             audit.record(AuditEvent.PERMISSION_DENIED, actor=actor, resource=name, outcome="role_insufficient",
                          required=spec.requires_role, actual=actor_role)
             raise PermissionError(f"Tool '{name}' requires role '{spec.requires_role}' (actor has '{actor_role}')")
+
+        # Role says who may call the tool; this says what they may call it
+        # with. Deliberately not role-exempt: an owner's session is the one a
+        # prompt injection would most like to borrow.
+        denial = check_arguments(name, inputs)
+        if denial:
+            audit.record(AuditEvent.TOOL_BLOCKED, actor=actor, resource=name,
+                         outcome="argument_denied", reason=denial)
+            raise PermissionError(f"Tool '{name}' {denial}")
 
         if spec.approval_required:
             audit.record(AuditEvent.TOOL_BLOCKED, actor=actor, resource=name, outcome="approval_required")

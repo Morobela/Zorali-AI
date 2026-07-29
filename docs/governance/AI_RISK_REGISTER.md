@@ -4,6 +4,7 @@
 |---|---|
 | Prompt injection | File and web content enter prompts as UNTRUSTED evidence blocks with explicit do-not-follow framing (`backend/app/api/chat.py`) |
 | Excessive agency | Tool registry role gates + `approval_required` + audit log on every execution (`backend/app/tools/registry.py`); code sandbox double-gated (env opt-in + admin role) |
+| Credential disclosure through a tool | Role decides who may call a tool; `backend/app/safety/argument_guard.py` decides what they may call it with. Path-taking tools refuse `.env`, private keys and `.ssh`/`.aws`/`.kube` contents, resolving symlinks so the check cannot be laundered. Not role-exempt — an owner's session is the one a prompt injection would most like to borrow |
 | Credential leakage | JWTs only in Authorization headers; WebSockets use single-use Redis tickets; every repository access is owner-scoped. The optional GitHub token is never logged or stored, and the repo importer never writes it into an import record |
 | Hallucination | Answers grounded in retrieval carry citations (`[filename#chunk]` for files, `[W#]` for web sources); no automated verification engine yet |
 
