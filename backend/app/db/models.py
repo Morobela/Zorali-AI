@@ -530,3 +530,76 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
+
+
+class Routine(Base):
+    """A schedule and a prompt, defined by a user, that runs without them.
+
+    The built-in routines (reality scan, nightly self-check, nightly backup)
+    are compiled in and owned by the deployment. This is the same idea handed
+    to an account: "every morning, tell me what changed in my project."
+
+    Bounded on purpose, because a thing that runs unattended and spends money
+    is a money pump if it is not: ``interval_seconds`` has a floor,
+    ``max_cost_usd`` caps a single run, and ``consecutive_failures`` disables
+    a routine that keeps failing rather than letting it notify forever.
+
+    Schedules are deliberately small — ``interval`` (every N seconds) or
+    ``daily`` (at ``hour_utc``). Cron is a parser and a footgun; these two
+    cover what the feature is for.
+    """
+
+    __tablename__ = "routines"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    schedule_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="interval")
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=3600)
+    hour_utc: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    # 0 means "use the deployment default"; the runner never resolves it to
+    # uncapped, because an unattended prompt with no ceiling is the failure
+    # mode this whole feature has to avoid.
+    max_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    next_run_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    disabled_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )
+
+
+class RoutineRun(Base):
+    """One execution of a routine — kept so "did it work?" has an answer.
+
+    The notification carries the result to the user; this carries the record,
+    including what the run cost and why it failed.
+    """
+
+    __tablename__ = "routine_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    routine_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("routines.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running", index=True)
+    result: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, index=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
