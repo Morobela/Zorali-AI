@@ -45,8 +45,14 @@ against the code in the Phase-6 sweep.
 - [ ] Local voice stack (whisper.cpp STT + Piper TTS) for duplex voice.
 - [ ] Retrieval quality metrics in CI (Recall@5, MRR) on the RAG eval corpus.
 - [ ] Iterative deep research (multi-round search → read → re-search).
-- [ ] User-configurable proactive routines (the built-in reality-scan routine
-      with notifications shipped as U3/U4; custom scans/schedules are next).
+- [x] ~~User-configurable proactive routines.~~ Done — an account can define a
+      name, a prompt and a schedule (`interval` or `daily`). A ticker polls
+      Postgres for due routines, runs each through the normal tool loop as its
+      owner at `user` role, and notifies. Bounded because a user-defined thing
+      that runs unattended and spends money is a money pump otherwise: a
+      minimum interval, a per-account limit, a per-run spend ceiling that
+      disables a routine which exceeds it, and auto-disable after repeated
+      failures with the reason shown in the panel.
 
 ## Engineering debt (from the 2026-07 docs sweep)
 - [x] ~~Versioned WebSocket frame schema.~~ Done — schema version 1 lives in

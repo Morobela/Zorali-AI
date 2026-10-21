@@ -22,6 +22,7 @@ from app.api.resilience import router as resilience_router
 from app.api.selfcheck import router as selfcheck_router
 from app.api.webhooks import router as webhooks_router
 from app.api.notifications import router as notifications_router
+from app.api.routines import router as routines_router
 from app.api.skills import router as skills_router
 from app.api.inference_stats import router as inference_router
 from app.a2a.endpoint import router as a2a_router
@@ -53,6 +54,21 @@ async def lifespan(application: FastAPI):
             interval_s=settings.reality_scan_interval_seconds,
             priority=7,
         ))
+    if settings.routines_enabled:
+        # User-defined routines. One ticker polls Postgres for due schedules
+        # rather than one queue task per routine: a routine created a second
+        # ago is picked up without touching the queue, and a restart loses
+        # nothing — the same reasoning that lets goals resume on boot.
+        from app.agents.routine_runner import tick as routine_tick
+
+        await task_queue.enqueue(QueuedTask(
+            name="routine-ticker",
+            fn=routine_tick,
+            mode=ExecutionMode.CONTINUOUS,
+            interval_s=settings.routine_tick_seconds,
+            priority=7,
+        ))
+
     if settings.goal_engine_enabled and settings.goal_resume_on_boot:
         # Durable goals (capability map U1): continue work a previous process
         # left mid-flight. Detached so a long goal cannot delay startup.
@@ -178,6 +194,7 @@ app.include_router(ws_ticket_router)
 app.include_router(artifacts_router)
 app.include_router(a2a_router)
 app.include_router(notifications_router)
+app.include_router(routines_router)
 app.include_router(goals_router)
 app.include_router(imports_router)
 app.include_router(webhooks_router)

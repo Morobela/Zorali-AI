@@ -1129,3 +1129,26 @@ textarea { resize: vertical; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* User-configurable routines panel */
+.routines-panel { display: flex; flex-direction: column; gap: 10px; }
+.routines-head { display: flex; align-items: center; justify-content: space-between; }
+.routine-form { display: flex; flex-direction: column; gap: 6px; }
+.routine-form input, .routine-form textarea, .routine-form select {
+  background: var(--zorali-panel); color: var(--zorali-text);
+  border: 1px solid var(--zorali-border); border-radius: 6px; padding: 6px 8px; font: inherit;
+}
+.routine-form textarea { min-height: 56px; resize: vertical; }
+.routine-schedule { display: flex; gap: 6px; align-items: center; }
+.routine-schedule input { width: 90px; }
+.routine-error { color: var(--zorali-danger, #f66); font-size: 12px; }
+.routine-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  border-top: 1px solid var(--zorali-border); padding: 8px 0;
+}
+.routine-row.disabled { opacity: 0.55; }
+.routine-title { font-weight: 600; }
+.routine-meta { color: var(--zorali-muted); font-size: 12px; }
+/* A routine that switched itself off must say why, where its owner will look. */
+.routine-warning { color: var(--zorali-danger, #f66); font-size: 12px; margin-top: 4px; }
+.routine-actions { display: flex; gap: 2px; flex-shrink: 0; }
